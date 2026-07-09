@@ -6,6 +6,18 @@
 
 ---
 
+## 快速安装
+
+```bash
+git clone https://github.com/kimsaerono/weekly-report-auto.git ~/.agents/skills/weekly-report-auto/
+cd ~/.agents/skills/weekly-report-auto && cp .env.example .env
+# 然后编辑 .env 填入配置
+```
+
+OpenCode 中下次对话说"写周报"即可，依赖首次自动安装。
+
+---
+
 ## 先配好飞书应用
 
 在 [飞书开放平台](https://open.feishu.cn/app) 创建企业自建应用，开通权限：
@@ -141,7 +153,7 @@ Playwright 会打开浏览器，首次需用飞书 App 扫码登录。
 
 ```
 weekly-report-auto/
-├── README.md
+├── README.md                   # 本文件
 ├── SKILL.md                    # AI 指令（OpenCode 自动发现）
 ├── .env.example                # 配置模板（复制为 .env）
 ├── .gitignore
@@ -152,6 +164,12 @@ weekly-report-auto/
     ├── feishu-client.ts        # 飞书 API 封装
     ├── playwright-fill.ts      # Playwright 自动填表
     └── notify.ts               # 飞书卡片通知
+```
+
+## 更新
+
+```bash
+cd ~/.agents/skills/weekly-report-auto && git pull
 ```
 
 ---
