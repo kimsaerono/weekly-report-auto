@@ -1,0 +1,19 @@
+{
+  "name": "weekly-report-auto",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "fill-report": "npx tsx src/playwright-fill.ts",
+    "notify": "npx tsx src/notify.ts"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.35.0",
+    "playwright": "^1.48.0"
+  },
+  "devDependencies": {
+    "@playwright/browser-chromium": "^1.48.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0"
+  }
+}
