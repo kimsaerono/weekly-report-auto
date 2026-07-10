@@ -34,17 +34,20 @@ npx skills add kimsaerono/weekly-report-auto -g
 
 ## 配置
 
-安装后 AI 会自动引导你配置。手动配置请复制 `.env.example` 为 `.env`：
+安装后运行交互式配置：
 
 ```bash
-cp ~/.agents/skills/weekly-report-auto/.env.example ~/.agents/skills/weekly-report-auto/.env
+cd ~/.agents/skills/weekly-report-auto
+npm run setup
 ```
+
+按提示输入飞书应用凭证，自动生成 `.env` 文件。
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
 | `FEISHU_APP_ID` | ✅ | 飞书应用的 App ID，团队共享 |
 | `FEISHU_APP_SECRET` | ✅ | 飞书应用的 Secret，团队共享 |
-| `FEISHU_REPORT_RULE_ID` | ✅ | 周报表 ID（URL 里 `ruleId=` 后面的数字） |
+| `FEISHU_REPORT_RULE_ID` | ❌ | 周报表 ID（默认 `7179489743821406210`） |
 | `FEISHU_OPEN_ID` | ❌ | 你的飞书 Open ID，填了才会发通知 |
 
 ---
@@ -98,8 +101,8 @@ cd ~/.agents/skills/weekly-report-auto
 # 1. 安装依赖
 bun install && bunx playwright install chromium
 
-# 2. 配置 .env
-cp .env.example .env && vim .env
+# 2. 配置 .env（交互式输入）
+npm run setup
 
 # 3. 填入周报内容并执行
 set -a && source .env && set +a
@@ -108,7 +111,7 @@ REPORT_UNCOMPLETED="未完成工作" \
 REPORT_NEXT_PLAN="下周计划" \
 REPORT_HELP="需要协调" \
 REPORT_REFLECTION="学习反思" \
-npx tsx playwright-fill.ts
+npx tsx scripts/playwright-fill.ts
 
 # 4. 发送通知（可选）
 set -a && source .env && set +a
@@ -117,7 +120,7 @@ REPORT_UNCOMPLETED="..." \
 REPORT_NEXT_PLAN="..." \
 REPORT_HELP="..." \
 REPORT_REFLECTION="..." \
-npx tsx notify.ts
+npx tsx scripts/notify.ts
 ```
 
 ---
@@ -137,13 +140,18 @@ Playwright 会打开浏览器，首次需用飞书 App 扫码登录。
 weekly-report-auto/
 ├── SKILL.md                    # AI 指令
 ├── README.md                   # 本文件
-├── .env.example                # 配置模板
+├── .env                        # 环境配置（npm run setup 生成）
 ├── package.json
 ├── tsconfig.json
-├── types.ts                    # 类型定义
-├── feishu-client.ts            # 飞书 API 封装
-├── playwright-fill.ts          # Playwright 自动填表
-└── notify.ts                   # 飞书卡片通知
+├── scripts/
+│   ├── setup.ts                # 交互式配置
+│   ├── feishu-client.ts        # 飞书 API 封装
+│   ├── collect.ts              # 按关键词采集消息
+│   ├── collect-all.ts          # 采集所有群消息
+│   ├── collect-im.ts           # 采集本人消息
+│   ├── playwright-fill.ts      # Playwright 自动填表
+│   ├── notify.ts               # 飞书卡片通知
+│   └── types.ts                # 类型定义
 ```
 
 ## 更新

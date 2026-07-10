@@ -30,19 +30,25 @@ npm install
 npx playwright install chromium
 ```
 
-### 配置环境变量
+### 配置环境变量（自动检测）
 
-复制 `.env.example` 为 `.env` 并填写：
+**在执行任何操作前，先检查 `.env` 文件是否存在且 `FEISHU_APP_ID` 不为空：**
 
 ```bash
-cp .env.example .env
+# 检查 .env 是否存在且有效
+if [ ! -f .env ] || ! grep -q "FEISHU_APP_ID=\"[^\"]\+\"" .env 2>/dev/null; then
+  echo "检测到未配置环境变量，启动交互式配置..."
+  npm run setup
+fi
 ```
+
+如果未配置，自动运行 `npm run setup`，交互式输入以下变量：
 
 | 变量 | 必填 | 说明 |
 |------|------|------|
 | `FEISHU_APP_ID` | 是 | 飞书应用 App ID |
 | `FEISHU_APP_SECRET` | 是 | 飞书应用 App Secret |
-| `FEISHU_REPORT_RULE_ID` | 是 | 周报表 ID（默认 `7179489743821406210`） |
+| `FEISHU_REPORT_RULE_ID` | 否 | 周报表 ID（默认 `7179489743821406210`） |
 | `FEISHU_OPEN_ID` | 否 | 飞书 Open ID（填了可发通知） |
 
 ### 飞书应用前置配置
@@ -79,6 +85,17 @@ weekly-report-auto/
 ## Execution
 
 所有命令在项目根目录执行。
+
+### 前置检查
+
+每次执行前，确保环境已配置：
+
+```bash
+cd ~/.agents/skills/weekly-report-auto
+if [ ! -f .env ] || ! grep -q "FEISHU_APP_ID=\"[^\"]\+\"" .env 2>/dev/null; then
+  npm run setup
+fi
+```
 
 ### 1. 采集消息
 

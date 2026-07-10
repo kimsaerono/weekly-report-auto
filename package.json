@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "postinstall": "npx playwright install chromium 2>/dev/null || true",
+    "setup": "npx tsx scripts/setup.ts",
     "fill-report": "npx tsx scripts/playwright-fill.ts",
     "notify": "npx tsx scripts/notify.ts",
     "collect": "npx tsx scripts/collect.ts",
