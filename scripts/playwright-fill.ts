@@ -1,5 +1,6 @@
 import { chromium } from 'playwright'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { execSync } from 'child_process'
 import { setTimeout } from 'timers/promises'
 
 const RULE_ID = process.env.FEISHU_REPORT_RULE_ID
@@ -16,6 +17,9 @@ interface ReportContent {
 }
 
 async function fillReport(content: ReportContent) {
+  // 自动安装 Chromium（若未安装）
+  try { execSync('npx playwright install chromium 2>/dev/null', { stdio: 'pipe' }) } catch {}
+
   const browser = await chromium.launch({ headless: false })
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   const page = await context.newPage()

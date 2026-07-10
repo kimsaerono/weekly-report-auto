@@ -3,8 +3,12 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "fill-report": "npx tsx playwright-fill.ts",
-    "notify": "npx tsx notify.ts"
+    "postinstall": "npx playwright install chromium 2>/dev/null || true",
+    "fill-report": "npx tsx scripts/playwright-fill.ts",
+    "notify": "npx tsx scripts/notify.ts",
+    "collect": "npx tsx scripts/collect.ts",
+    "collect-all": "npx tsx scripts/collect-all.ts",
+    "collect-im": "npx tsx scripts/collect-im.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.35.0",
