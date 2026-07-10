@@ -63,7 +63,7 @@ $PM exec playwright install chromium 2>/dev/null || npx playwright install chrom
 
 ```bash
 set -a && source .env && set +a
-npx tsx src/feishu-client.ts
+npx tsx feishu-client.ts
 ```
 
 ### 2. AI 生成周报
@@ -74,7 +74,7 @@ npx tsx src/feishu-client.ts
 
 ```bash
 set -a && source .env && set +a
-REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HELP="..." REPORT_REFLECTION="..." npx tsx src/playwright-fill.ts
+REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HELP="..." REPORT_REFLECTION="..." npx tsx playwright-fill.ts
 ```
 
 ### 4. 发送通知（可选）
@@ -83,7 +83,7 @@ REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HE
 
 ```bash
 set -a && source .env && set +a
-REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HELP="..." REPORT_REFLECTION="..." npx tsx src/notify.ts
+REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HELP="..." REPORT_REFLECTION="..." npx tsx notify.ts
 ```
 
 ## Common Mistakes

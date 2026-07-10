@@ -1,4 +1,4 @@
-import type { FeishuConfig } from './types.js'
+import type { FeishuConfig } from './types.ts'
 
 export class FeishuClient {
   private config: FeishuConfig

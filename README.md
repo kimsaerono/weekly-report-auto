@@ -108,7 +108,7 @@ REPORT_UNCOMPLETED="未完成工作" \
 REPORT_NEXT_PLAN="下周计划" \
 REPORT_HELP="需要协调" \
 REPORT_REFLECTION="学习反思" \
-npx tsx src/playwright-fill.ts
+npx tsx playwright-fill.ts
 
 # 4. 发送通知（可选）
 set -a && source .env && set +a
@@ -117,7 +117,7 @@ REPORT_UNCOMPLETED="..." \
 REPORT_NEXT_PLAN="..." \
 REPORT_HELP="..." \
 REPORT_REFLECTION="..." \
-npx tsx src/notify.ts
+npx tsx notify.ts
 ```
 
 ---
@@ -140,11 +140,10 @@ weekly-report-auto/
 ├── .env.example                # 配置模板
 ├── package.json
 ├── tsconfig.json
-└── src/
-    ├── types.ts                # 类型定义
-    ├── feishu-client.ts        # 飞书 API 封装
-    ├── playwright-fill.ts      # Playwright 自动填表
-    └── notify.ts               # 飞书卡片通知
+├── types.ts                    # 类型定义
+├── feishu-client.ts            # 飞书 API 封装
+├── playwright-fill.ts          # Playwright 自动填表
+└── notify.ts                   # 飞书卡片通知
 ```
 
 ## 更新

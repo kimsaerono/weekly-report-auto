@@ -3,8 +3,8 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "fill-report": "npx tsx src/playwright-fill.ts",
-    "notify": "npx tsx src/notify.ts"
+    "fill-report": "npx tsx playwright-fill.ts",
+    "notify": "npx tsx notify.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.35.0",
