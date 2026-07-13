@@ -10,6 +10,7 @@ description: "Use when the user says they want to write/auto-generate/fill a wee
 - 用户说"写周报"、"生成周报"、"帮我填周报"
 - 需要自动采集飞书消息并归纳为周报内容
 - 需要自动填入飞书 OA 周报草稿页面
+- 需要预防周报内容中避免重复序号和多余前缀标签
 
 ## When NOT to Use
 
