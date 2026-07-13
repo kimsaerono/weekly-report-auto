@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'fs'
+import { writeFileSync } from 'fs'
 import { createInterface } from 'readline'
 
 const rl = createInterface({ input: process.stdin, output: process.stdout })
@@ -6,13 +6,26 @@ const rl = createInterface({ input: process.stdin, output: process.stdout })
 const question = (prompt: string): Promise<string> =>
   new Promise((resolve) => rl.question(prompt, resolve))
 
+async function askRequired(label: string, hint: string): Promise<string> {
+  while (true) {
+    const value = (await question(`${label}${hint ? ` (${hint})` : ''}: `)).trim()
+    if (value) return value
+    console.log(`  ⚠ ${label} 为必填项，请输入`)
+  }
+}
+
+async function askOptional(label: string, hint: string): Promise<string> {
+  const value = (await question(`${label}${hint ? ` (${hint})` : ''} [可跳过]: `)).trim()
+  return value
+}
+
 async function main() {
   console.log('飞书周报自动化 - 环境配置\n')
 
-  const appId = await question('FEISHU_APP_ID: ')
-  const appSecret = await question('FEISHU_APP_SECRET: ')
-  const reportRuleId = await question('FEISHU_REPORT_RULE_ID (默认 7179489743821406210): ') || '7179489743821406210'
-  const openId = await question('FEISHU_OPEN_ID (可选，直接回车跳过): ')
+  const appId = await askRequired('FEISHU_APP_ID', '飞书应用 App ID')
+  const appSecret = await askRequired('FEISHU_APP_SECRET', '飞书应用 App Secret')
+  const reportRuleId = (await askOptional('FEISHU_REPORT_RULE_ID', '周报表 ID，默认 7179489743821406210')) || '7179489743821406210'
+  const openId = await askOptional('FEISHU_OPEN_ID', '飞书 Open ID，后续可在 .env 中添加')
 
   const env = `# 飞书应用凭证
 FEISHU_APP_ID="${appId}"
@@ -27,6 +40,11 @@ ${openId ? `FEISHU_OPEN_ID="${openId}"` : '# FEISHU_OPEN_ID=""'}
 
   writeFileSync('.env', env)
   console.log('\n✓ .env 文件已生成')
+  if (!openId) {
+    console.log('  提示: FEISHU_OPEN_ID 未配置，通知功能暂不可用。')
+    console.log('  后续获取到 Open ID 后，直接编辑 .env 文件添加即可，无需重新初始化。')
+    console.log('  获取方式：飞书搜索"飞书小助手"发送 /myopenid')
+  }
 
   rl.close()
 }

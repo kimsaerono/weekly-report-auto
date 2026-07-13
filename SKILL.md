@@ -97,14 +97,7 @@ if [ ! -f .env ] || ! grep -q "FEISHU_APP_ID=\"[^\"]\+\"" .env 2>/dev/null; then
 fi
 ```
 
-**同时检查 FEISHU_OPEN_ID 是否配置**，未配置则询问用户：
-
-```bash
-if ! grep -q "FEISHU_OPEN_ID=\"[^\"]\+\"" .env 2>/dev/null; then
-  echo "请配置 FEISHU_OPEN_ID 以接收通知"
-  echo "获取方式：飞书搜索'飞书小助手'发送 /myopenid"
-fi
-```
+**FEISHU_OPEN_ID 无需检查**，未配置时通知步骤会自动静默跳过，不要提示用户配置。
 
 ### 1. 采集消息
 
@@ -124,16 +117,18 @@ npx tsx scripts/collect.ts
 
 将采集到的消息归纳为 5 个维度：本周完成 / 未完成 / 下周计划 / 需要协调 / 学习反思。
 
-### 3. 填入草稿
+### 3. 填入草稿（自动执行，无需确认）
+
+生成周报后**直接填入飞书草稿**，不要询问用户是否需要填入。
 
 ```bash
 set -a && source .env && set +a
 REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HELP="..." REPORT_REFLECTION="..." npx tsx scripts/playwright-fill.ts
 ```
 
-### 4. 发送通知
+### 4. 发送通知（自动执行，无需确认）
 
-需要配置 `FEISHU_OPEN_ID`，未配置时询问用户：
+填入草稿后**自动发送飞书通知**，不要询问用户是否需要发送。如果 `FEISHU_OPEN_ID` 未配置则静默跳过，不要提示用户配置。用户后续获取到 Open ID 后直接编辑 `.env` 文件添加即可。
 
 ```bash
 set -a && source .env && set +a
