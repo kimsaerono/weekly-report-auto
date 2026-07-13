@@ -21,35 +21,7 @@ description: "Use when the user says they want to write/auto-generate/fill a wee
 
 ### 项目根目录
 
-所有操作在此仓库根目录执行。
-
-### 安装依赖
-
-```bash
-npm install
-npx playwright install chromium
-```
-
-### 配置环境变量（自动检测）
-
-**在执行任何操作前，先检查 `.env` 文件是否存在且 `FEISHU_APP_ID` 不为空：**
-
-```bash
-# 检查 .env 是否存在且有效
-if [ ! -f .env ] || ! grep -q "FEISHU_APP_ID=\"[^\"]\+\"" .env 2>/dev/null; then
-  echo "检测到未配置环境变量，启动交互式配置..."
-  npm run setup
-fi
-```
-
-如果未配置，自动运行 `npm run setup`，交互式输入以下变量：
-
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `FEISHU_APP_ID` | 是 | 飞书应用 App ID |
-| `FEISHU_APP_SECRET` | 是 | 飞书应用 App Secret |
-| `FEISHU_REPORT_RULE_ID` | 否 | 周报表 ID（默认 `7179489743821406210`） |
-| `FEISHU_OPEN_ID` | 否 | 飞书 Open ID（填了可发通知） |
+所有操作在此仓库根目录执行：`~/.agents/skills/weekly-report-auto`
 
 ### 飞书应用前置配置
 
@@ -84,18 +56,44 @@ weekly-report-auto/
 
 ## Execution
 
-所有命令在项目根目录执行。
+所有命令在项目根目录 `~/.agents/skills/weekly-report-auto` 执行。
 
-### 前置检查
+### 前置检查（每次执行前必须完成）
 
-每次执行前，确保环境已配置：
+**按以下顺序逐步检查，缺少什么补什么：**
+
+#### 1. 检查依赖安装
 
 ```bash
 cd ~/.agents/skills/weekly-report-auto
-if [ ! -f .env ] || ! grep -q "FEISHU_APP_ID=\"[^\"]\+\"" .env 2>/dev/null; then
-  npm run setup
-fi
+if [ ! -d node_modules ]; then npm install; fi
 ```
+
+#### 2. 检查 .env 配置
+
+读取 `.env` 文件，检查 `FEISHU_APP_ID` 是否有值。**不要使用 `npm run setup`**（它是交互式脚本，AI 终端无法输入）。
+
+**如果 `.env` 不存在或 `FEISHU_APP_ID` 为空：**
+
+用自然语言**逐个**向用户询问以下配置项，然后**直接用 Write 工具写入 `.env` 文件**：
+
+| 变量 | 询问方式 | 备注 |
+|------|----------|------|
+| `FEISHU_APP_ID` | "请提供飞书应用的 App ID" | 必填，不能为空 |
+| `FEISHU_APP_SECRET` | "请提供飞书应用的 App Secret" | 必填，不能为空 |
+| `FEISHU_REPORT_RULE_ID` | "请提供周报表 ID（在周报页面 URL 中 ruleId= 后面的数字），默认 7179489743821406210" | 可回车跳过使用默认值 |
+| `FEISHU_OPEN_ID` | "请提供你的飞书 Open ID（飞书搜索'飞书小助手'发送 /myopenid 获取），可回车跳过" | 可回车跳过，后续在 .env 中添加即可 |
+
+`.env` 文件模板：
+
+```
+FEISHU_APP_ID="用户提供的值"
+FEISHU_APP_SECRET="用户提供的值"
+FEISHU_REPORT_RULE_ID="用户提供的值或默认值"
+# FEISHU_OPEN_ID=""  （如果用户跳过则注释掉）
+```
+
+**如果 `.env` 已存在且 `FEISHU_APP_ID` 有值：** 直接进入下一步，不要重复询问。
 
 **FEISHU_OPEN_ID 无需检查**，未配置时通知步骤会自动静默跳过，不要提示用户配置。
 
