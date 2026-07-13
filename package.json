@@ -10,7 +10,9 @@
     "notify": "npx tsx scripts/notify.ts",
     "collect": "npx tsx scripts/collect.ts",
     "collect-all": "npx tsx scripts/collect-all.ts",
-    "collect-im": "npx tsx scripts/collect-im.ts",
+    "collect-calendar": "npx tsx scripts/collect-calendar.ts",
+    "collect-tasks": "npx tsx scripts/collect-tasks.ts",
+    "collect-docs": "npx tsx scripts/collect-docs.ts",
     "analyze": "npx tsx scripts/analyze.ts"
   },
   "dependencies": {
