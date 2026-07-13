@@ -149,36 +149,52 @@ async function fillReport(content: ReportContent) {
     { label: '学习和反思', value: content.reflection },
   ]
 
-  const editables = page.locator('[contenteditable="true"]')
-
-  for (let i = 0; i < Math.min(await editables.count(), fields.length); i++) {
-    const field = fields[i]
-    
+  for (const field of fields) {
     // 跳过空内容（但"无"会被填入）
     if (!field.value) continue
 
-    const el = editables.nth(i)
+    // 根据标签文本定位输入框
+    const labelEl = page.locator(`text="${field.label}"`).first()
+    if (!(await labelEl.count())) {
+      console.log(`⚠ 未找到标签: ${field.label}，尝试模糊匹配`)
+    }
+
+    // 优先：在标签附近查找 contenteditable
+    const editable = labelEl.locator('xpath=ancestor::*[.//contenteditable]//div[@contenteditable="true"] | following-sibling::*//div[@contenteditable="true"]').first()
+    // 兜底：按索引定位
+    const editableAlt = page.locator(`[contenteditable="true"]`).nth(fields.indexOf(field))
+
+    let el = editable
+    if (!(await el.count())) {
+      console.log(`标签 "${field.label}" 附近未找到 contenteditable，使用索引定位`)
+      el = editableAlt
+    }
+
+    if (!(await el.count())) {
+      console.log(`⚠ 跳过: ${field.label}，找不到输入框`)
+      continue
+    }
+
     await el.click()
     await setTimeout(500)
-    
+
     // 清空内容
     await page.keyboard.press('Meta+a')
     await setTimeout(200)
     await page.keyboard.press('Backspace')
     await setTimeout(200)
-    
+
     // 输入纯文本内容
     const lines = field.value.split('\n').filter(Boolean)
     for (let j = 0; j < lines.length; j++) {
       await page.keyboard.type(lines[j], { delay: 3 })
-      
       // 不是最后一行才按回车
       if (j < lines.length - 1) {
         await page.keyboard.press('Enter')
         await setTimeout(200)
       }
     }
-    
+
     console.log(`已输入: ${field.label}`)
   }
 
