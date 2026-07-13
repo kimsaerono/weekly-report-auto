@@ -7,6 +7,7 @@ const RULE_ID = process.env.FEISHU_REPORT_RULE_ID
 if (!RULE_ID) { console.error('请配置 FEISHU_REPORT_RULE_ID'); process.exit(1) }
 const REPORT_URL = `https://oa.feishu.cn/report/record/detail?ruleId=${RULE_ID}&routeFrom=/record/list`
 const COOKIE_PATH = process.env.COOKIE_PATH || new URL('../.feishu-cookies.json', import.meta.url).pathname
+const TEMPLATE_PATH = new URL('../template.md', import.meta.url).pathname
 
 interface ReportContent {
   completed: string
@@ -14,6 +15,71 @@ interface ReportContent {
   nextPlan: string
   help: string
   reflection: string
+}
+
+// 解析 template.md 文件
+function parseTemplate(templatePath: string): ReportContent {
+  if (!existsSync(templatePath)) {
+    console.log('template.md 不存在，使用环境变量')
+    return {
+      completed: process.env.REPORT_COMPLETED || '无',
+      uncompleted: process.env.REPORT_UNCOMPLETED || '无',
+      nextPlan: process.env.REPORT_NEXT_PLAN || '无',
+      help: process.env.REPORT_HELP || '无',
+      reflection: process.env.REPORT_REFLECTION || '无',
+    }
+  }
+
+  const content = readFileSync(templatePath, 'utf-8')
+  
+  // 定义标题到字段的映射
+  const titleMap: Record<string, keyof ReportContent> = {
+    '完成': 'completed',
+    '未完成': 'uncompleted',
+    '计划': 'nextPlan',
+    '协调': 'help',
+    '反思': 'reflection',
+  }
+  
+  const result: ReportContent = {
+    completed: '无',
+    uncompleted: '无',
+    nextPlan: '无',
+    help: '无',
+    reflection: '无',
+  }
+  
+  // 按 ## 分割内容
+  const sections = content.split(/^## /m).slice(1)
+  
+  for (const section of sections) {
+    const lines = section.split('\n')
+    const title = lines[0].trim()
+    
+    // 找到匹配的字段
+    let fieldKey: keyof ReportContent | null = null
+    for (const [keyword, key] of Object.entries(titleMap)) {
+      if (title.includes(keyword)) {
+        fieldKey = key
+        break
+      }
+    }
+    
+    if (fieldKey) {
+      // 解析内容：跳过注释行和空行，去掉 - 前缀
+      const contentLines = lines.slice(1)
+        .filter(line => !line.trim().startsWith('<!--'))
+        .filter(line => line.trim())
+        .map(line => line.replace(/^-\s*/, '').trim())
+        .filter(line => line && line !== '-')
+      
+      if (contentLines.length > 0) {
+        result[fieldKey] = contentLines.join('\n')
+      }
+    }
+  }
+  
+  return result
 }
 
 async function fillReport(content: ReportContent) {
@@ -30,30 +96,7 @@ async function fillReport(content: ReportContent) {
     const url = request.url()
     if (url.includes('DraftUserRuleWriteView')) {
       const body = request.postData() ? String(request.postData()) : 'null'
-      // 搜索关键字段内容
-      const hasFieldValues = body.includes('fieldValues') || body.includes('fieldValue')
-      const hasContent = body.includes('本周完成') || body.includes('性能优化') || body.includes('Playwright')
-      console.log(`\n=== Draft 请求 (hasFieldValues=${hasFieldValues}, hasContent=${hasContent}) ===`)
-      console.log(`body length: ${body.length}`)
-      if (hasFieldValues) {
-        const idx = body.indexOf('fieldValues')
-        console.log('fieldValues 附近:', body.slice(Math.max(0, idx - 50), idx + 300))
-      }
-      if (hasContent) {
-        console.log('包含内容位置:', body.indexOf('本周完成'), body.indexOf('性能优化'))
-      } else {
-        console.log('body:', body.slice(body.length - 500))
-      }
       savedRequests.push({ url: url.slice(0, 120), method: request.method(), body })
-    }
-  })
-
-  page.on('response', (response: any) => {
-    const url = response.url()
-    if (url.includes('DraftUserRuleWriteView') || url.includes('SubmitUserRuleWriteView')) {
-      response.text().then((t: string) => {
-        console.log('保存响应:', t.slice(0, 300))
-      }).catch(() => {})
     }
   })
 
@@ -110,26 +153,40 @@ async function fillReport(content: ReportContent) {
 
   for (let i = 0; i < Math.min(await editables.count(), fields.length); i++) {
     const field = fields[i]
+    
+    // 跳过空内容（但"无"会被填入）
     if (!field.value) continue
 
     const el = editables.nth(i)
     await el.click()
     await setTimeout(500)
+    
+    // 清空内容
     await page.keyboard.press('Meta+a')
     await setTimeout(200)
-    await page.keyboard.type(field.value, { delay: 3 })
+    await page.keyboard.press('Backspace')
+    await setTimeout(200)
+    
+    // 输入纯文本内容
+    const lines = field.value.split('\n').filter(Boolean)
+    for (let j = 0; j < lines.length; j++) {
+      await page.keyboard.type(lines[j], { delay: 3 })
+      
+      // 不是最后一行才按回车
+      if (j < lines.length - 1) {
+        await page.keyboard.press('Enter')
+        await setTimeout(200)
+      }
+    }
+    
     console.log(`已输入: ${field.label}`)
   }
 
-  // 等待自动保存触发（不要点击返回，避免导航）
+  // 等待自动保存触发
   console.log('等待自动保存...')
   await setTimeout(8000)
 
   console.log(`保存请求数: ${savedRequests.length}`)
-  for (const r of savedRequests) {
-    console.log(`  [${r.method}] ${r.url}`)
-    console.log(`  body: ${r.body.slice(0, 300)}`)
-  }
 
   if (savedRequests.some(r => r.url.includes('Draft'))) {
     console.log('✅ Draft 保存请求已发出')
@@ -138,18 +195,18 @@ async function fillReport(content: ReportContent) {
   await page.screenshot({ path: '/tmp/weekly-report-result.png', fullPage: true })
   console.log('截图已保存')
 
-  // 等待额外时间确保保存完成
   await setTimeout(5000)
   await browser.close()
 }
 
-const content: ReportContent = {
-  completed: process.env.REPORT_COMPLETED || '',
-  uncompleted: process.env.REPORT_UNCOMPLETED || '',
-  nextPlan: process.env.REPORT_NEXT_PLAN || '',
-  help: process.env.REPORT_HELP || '',
-  reflection: process.env.REPORT_REFLECTION || '',
-}
+// 优先读取 template.md，否则使用环境变量
+const content = parseTemplate(TEMPLATE_PATH)
+console.log('周报内容:')
+console.log('  完成:', content.completed.substring(0, 50) + '...')
+console.log('  未完成:', content.uncompleted.substring(0, 50) + '...')
+console.log('  计划:', content.nextPlan.substring(0, 50) + '...')
+console.log('  协调:', content.help)
+console.log('  反思:', content.reflection.substring(0, 50) + '...')
 
 fillReport(content).catch(err => {
   console.error('失败:', err.message)
