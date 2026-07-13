@@ -32,10 +32,10 @@ function parseTemplate(templatePath: string): ReportContent {
 
   const content = readFileSync(templatePath, 'utf-8')
   
-  // 定义标题到字段的映射
+  // 定义标题到字段的映射（注意：长关键词要放在前面，避免"未完成"误匹配"完成"）
   const titleMap: Record<string, keyof ReportContent> = {
-    '完成': 'completed',
     '未完成': 'uncompleted',
+    '完成': 'completed',
     '计划': 'nextPlan',
     '协调': 'help',
     '反思': 'reflection',

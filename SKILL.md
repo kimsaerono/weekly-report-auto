@@ -97,6 +97,15 @@ if [ ! -f .env ] || ! grep -q "FEISHU_APP_ID=\"[^\"]\+\"" .env 2>/dev/null; then
 fi
 ```
 
+**同时检查 FEISHU_OPEN_ID 是否配置**，未配置则询问用户：
+
+```bash
+if ! grep -q "FEISHU_OPEN_ID=\"[^\"]\+\"" .env 2>/dev/null; then
+  echo "请配置 FEISHU_OPEN_ID 以接收通知"
+  echo "获取方式：飞书搜索'飞书小助手'发送 /myopenid"
+fi
+```
+
 ### 1. 采集消息
 
 ```bash
@@ -104,7 +113,7 @@ set -a && source .env && set +a
 npx tsx scripts/collect-all.ts
 ```
 
-或按关键词搜索本人消息：
+或按关键词搜索本人消息（需要 FEISHU_OPEN_ID）：
 
 ```bash
 set -a && source .env && set +a
@@ -122,9 +131,9 @@ set -a && source .env && set +a
 REPORT_COMPLETED="..." REPORT_UNCOMPLETED="..." REPORT_NEXT_PLAN="..." REPORT_HELP="..." REPORT_REFLECTION="..." npx tsx scripts/playwright-fill.ts
 ```
 
-### 4. 发送通知（可选）
+### 4. 发送通知
 
-仅在配置了 `FEISHU_OPEN_ID` 时执行：
+需要配置 `FEISHU_OPEN_ID`，未配置时询问用户：
 
 ```bash
 set -a && source .env && set +a
