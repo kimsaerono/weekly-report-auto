@@ -1,10 +1,54 @@
-async function sendCard(openId: string, content: {
+import { readFileSync, existsSync } from 'fs'
+
+interface ReportContent {
   completed: string
   uncompleted: string
   nextPlan: string
   help: string
   reflection: string
-}) {
+}
+
+function parseTemplate(templatePath: string): ReportContent {
+  if (!existsSync(templatePath)) {
+    return {
+      completed: process.env.REPORT_COMPLETED || '无',
+      uncompleted: process.env.REPORT_UNCOMPLETED || '无',
+      nextPlan: process.env.REPORT_NEXT_PLAN || '无',
+      help: process.env.REPORT_HELP || '无',
+      reflection: process.env.REPORT_REFLECTION || '无',
+    }
+  }
+
+  const content = readFileSync(templatePath, 'utf-8')
+  const titleMap: Record<string, keyof ReportContent> = {
+    '未完成': 'uncompleted',
+    '完成': 'completed',
+    '计划': 'nextPlan',
+    '协调': 'help',
+    '反思': 'reflection',
+  }
+  const result: ReportContent = { completed: '无', uncompleted: '无', nextPlan: '无', help: '无', reflection: '无' }
+  const sections = content.split(/^## /m).slice(1)
+  for (const section of sections) {
+    const lines = section.split('\n')
+    const title = lines[0].trim()
+    let fieldKey: keyof ReportContent | null = null
+    for (const [keyword, key] of Object.entries(titleMap)) {
+      if (title.includes(keyword)) { fieldKey = key; break }
+    }
+    if (fieldKey) {
+      const contentLines = lines.slice(1)
+        .filter(line => !line.trim().startsWith('<!--'))
+        .filter(line => line.trim())
+        .map(line => line.replace(/^-\s*/, '').trim())
+        .filter(line => line && line !== '-')
+      if (contentLines.length > 0) result[fieldKey] = contentLines.join('\n')
+    }
+  }
+  return result
+}
+
+async function sendCard(openId: string, content: ReportContent) {
   const appId = process.env.FEISHU_APP_ID!
   const appSecret = process.env.FEISHU_APP_SECRET!
   const ruleId = process.env.FEISHU_REPORT_RULE_ID!
@@ -63,13 +107,8 @@ async function sendCard(openId: string, content: {
   console.log('通知已发送')
 }
 
-const content = {
-  completed: process.env.REPORT_COMPLETED || '',
-  uncompleted: process.env.REPORT_UNCOMPLETED || '',
-  nextPlan: process.env.REPORT_NEXT_PLAN || '',
-  help: process.env.REPORT_HELP || '',
-  reflection: process.env.REPORT_REFLECTION || '',
-}
+const TEMPLATE_PATH = new URL('../template.md', import.meta.url).pathname
+const content = parseTemplate(TEMPLATE_PATH)
 
 const openId = process.env.FEISHU_OPEN_ID
 if (!openId) {
