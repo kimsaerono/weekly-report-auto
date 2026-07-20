@@ -2,12 +2,13 @@ import { chromium } from 'playwright'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { setTimeout } from 'timers/promises'
+import { fileURLToPath } from 'node:url'
 
 const RULE_ID = process.env.FEISHU_REPORT_RULE_ID
 if (!RULE_ID) { console.error('请配置 FEISHU_REPORT_RULE_ID'); process.exit(1) }
 const REPORT_URL = `https://oa.feishu.cn/report/record/detail?ruleId=${RULE_ID}&routeFrom=/record/list`
-const COOKIE_PATH = process.env.COOKIE_PATH || new URL('../.feishu-cookies.json', import.meta.url).pathname
-const TEMPLATE_PATH = new URL('../template.md', import.meta.url).pathname
+const COOKIE_PATH = process.env.COOKIE_PATH || fileURLToPath(new URL('../.feishu-cookies.json', import.meta.url))
+const TEMPLATE_PATH = fileURLToPath(new URL('../template.md', import.meta.url))
 
 interface ReportContent {
   completed: string
@@ -37,7 +38,7 @@ function parseReportJson(reportPath: string): ReportContent | null {
 // 解析 template.md 文件
 function parseTemplate(templatePath: string): ReportContent {
   // 优先：report.json（由 analyze.ts 生成）
-  const reportJson = parseReportJson(new URL('../report.json', import.meta.url).pathname)
+  const reportJson = parseReportJson(fileURLToPath(new URL('../report.json', import.meta.url)))
   if (reportJson) {
     console.log('使用 report.json 作为周报内容')
     return reportJson

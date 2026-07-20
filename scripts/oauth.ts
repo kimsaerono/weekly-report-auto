@@ -2,10 +2,11 @@ import { chromium } from 'playwright'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { createServer } from 'http'
 import { config } from 'dotenv'
+import { fileURLToPath } from 'node:url'
 
 config()
 
-const TOKEN_PATH = new URL('../.feishu-user-token.json', import.meta.url).pathname
+const TOKEN_PATH = fileURLToPath(new URL('../.feishu-user-token.json', import.meta.url))
 const REDIRECT_PORT = 18765 // 固定端口，需在飞书应用安全设置中注册
 const AUTH_URL = 'https://open.feishu.cn/open-apis/authen/v1/authorize'
 const TOKEN_URL = 'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token'

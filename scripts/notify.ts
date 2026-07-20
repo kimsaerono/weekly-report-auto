@@ -1,4 +1,5 @@
 import { readFileSync, existsSync } from 'fs'
+import { fileURLToPath } from 'node:url'
 
 interface ReportContent {
   completed: string
@@ -107,8 +108,8 @@ async function sendCard(openId: string, content: ReportContent) {
   console.log('通知已发送')
 }
 
-const TEMPLATE_PATH = new URL('../template.md', import.meta.url).pathname
-const REPORT_PATH = new URL('../report.json', import.meta.url).pathname
+const TEMPLATE_PATH = fileURLToPath(new URL('../template.md', import.meta.url))
+const REPORT_PATH = fileURLToPath(new URL('../report.json', import.meta.url))
 
 // 优先使用 report.json（AI 生成的报告），否则退回到 template.md 或环境变量
 let content: ReportContent

@@ -1,7 +1,8 @@
 import type { FeishuConfig } from './types.ts'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { fileURLToPath } from 'node:url'
 
-const TOKEN_PATH = new URL('../.feishu-user-token.json', import.meta.url).pathname
+const TOKEN_PATH = fileURLToPath(new URL('../.feishu-user-token.json', import.meta.url))
 const REQUIRED_SCOPES = [
   'im:message:readonly',
   'contact:user.base:readonly',
