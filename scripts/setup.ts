@@ -40,11 +40,29 @@ ${openId ? `FEISHU_OPEN_ID="${openId}"` : '# FEISHU_OPEN_ID=""'}
 
   writeFileSync('.env', env)
   console.log('\n✓ .env 文件已生成')
+
   if (!openId) {
     console.log('  提示: FEISHU_OPEN_ID 未配置，通知功能暂不可用。')
     console.log('  后续获取到 Open ID 后，直接编辑 .env 文件添加即可，无需重新初始化。')
     console.log('  获取方式：飞书搜索"飞书小助手"发送 /myopenid')
   }
+
+  // OAuth 配置提示
+  console.log('\n========== 用户授权配置（可选）==========')
+  console.log('为了采集所有群的消息（不限于机器人所在群），需要配置用户授权：')
+  console.log('')
+  console.log('1. 在飞书开放平台 > 你的应用 > 安全设置 中添加重定向 URL：')
+  console.log('   http://127.0.0.1')
+  console.log('')
+  console.log('2. 确保应用已开通以下权限：')
+  console.log('   - im:message:readonly（读取消息）')
+  console.log('   - contact:user.base:readonly（读取用户信息）')
+  console.log('')
+  console.log('3. 运行以下命令进行用户授权：')
+  console.log('   npx tsx scripts/oauth.ts')
+  console.log('')
+  console.log('4. 授权后 Token 自动保存，后续采集会使用用户身份')
+  console.log('========================================\n')
 
   rl.close()
 }

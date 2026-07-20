@@ -17,8 +17,32 @@ interface ReportContent {
   reflection: string
 }
 
+// 解析 report.json（由 analyze.ts 生成）
+function parseReportJson(reportPath: string): ReportContent | null {
+  if (!existsSync(reportPath)) return null
+  try {
+    const data = JSON.parse(readFileSync(reportPath, 'utf-8'))
+    return {
+      completed: data.completed || '无',
+      uncompleted: data.uncompleted || '无',
+      nextPlan: data.nextPlan || '无',
+      help: data.help || '无',
+      reflection: data.reflection || '无',
+    }
+  } catch {
+    return null
+  }
+}
+
 // 解析 template.md 文件
 function parseTemplate(templatePath: string): ReportContent {
+  // 优先：report.json（由 analyze.ts 生成）
+  const reportJson = parseReportJson(new URL('../report.json', import.meta.url).pathname)
+  if (reportJson) {
+    console.log('使用 report.json 作为周报内容')
+    return reportJson
+  }
+
   if (!existsSync(templatePath)) {
     console.log('template.md 不存在，使用环境变量')
     return {

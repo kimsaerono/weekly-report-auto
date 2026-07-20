@@ -24,6 +24,7 @@ npx skills add kimsaerono/weekly-report-auto -g
 |------|------|
 | `im:message:readonly` | 读取群聊消息（必须） |
 | `im:message:send_as_bot` | 发送周报通知（可选） |
+| `contact:user.base:readonly` | 用户授权后读取用户信息（推荐） |
 
 发布应用后，将 App ID 和 App Secret 给团队成员。
 
@@ -49,6 +50,32 @@ npm run setup
 | `FEISHU_APP_SECRET` | ✅ | 飞书应用的 Secret，团队共享 |
 | `FEISHU_REPORT_RULE_ID` | ❌ | 周报表 ID（默认 `7179489743821406210`） |
 | `FEISHU_OPEN_ID` | ❌ | 你的飞书 Open ID，填了才会发通知 |
+
+---
+
+## 用户授权（推荐）
+
+为了采集**所有群**的消息（不限于机器人所在群），需要配置用户授权：
+
+1. 在飞书开放平台 > 你的应用 > **安全设置** 中添加重定向 URL：
+   ```
+   http://127.0.0.1:18765
+   ```
+
+2. 确保应用已开通以下权限：
+   - `im:message:readonly`（读取消息）
+   - `contact:user.base:readonly`（读取用户信息）
+
+3. 运行授权命令：
+   ```bash
+   npm run oauth
+   ```
+
+4. 浏览器会打开飞书授权页面，登录后自动完成授权
+
+5. Token 自动保存到 `.feishu-user-token.json`，后续采集会使用用户身份
+
+> **无用户授权时**：工具会降级为机器人身份采集，只能读取机器人所在群的消息。
 
 ---
 
@@ -104,7 +131,10 @@ bun install && bunx playwright install chromium
 # 2. 配置 .env（交互式输入）
 npm run setup
 
-# 3. 填入周报内容并执行
+# 3. 用户授权（可选，推荐）
+npm run oauth
+
+# 4. 填入周报内容并执行
 set -a && source .env && set +a
 REPORT_COMPLETED="本周完成工作" \
 REPORT_UNCOMPLETED="未完成工作" \
@@ -145,10 +175,15 @@ weekly-report-auto/
 ├── tsconfig.json
 ├── scripts/
 │   ├── setup.ts                # 交互式配置
+│   ├── oauth.ts                # 用户 OAuth 授权
 │   ├── feishu-client.ts        # 飞书 API 封装
 │   ├── collect.ts              # 按关键词采集消息
 │   ├── collect-all.ts          # 采集所有群消息
 │   ├── collect-im.ts           # 采集本人消息
+│   ├── collect-calendar.ts     # 采集日历事件
+│   ├── collect-tasks.ts        # 采集任务
+│   ├── collect-docs.ts         # 采集文档
+│   ├── analyze.ts              # AI 分析生成周报
 │   ├── playwright-fill.ts      # Playwright 自动填表
 │   ├── notify.ts               # 飞书卡片通知
 │   └── types.ts                # 类型定义

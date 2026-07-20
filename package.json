@@ -13,7 +13,10 @@
     "collect-calendar": "npx tsx scripts/collect-calendar.ts",
     "collect-tasks": "npx tsx scripts/collect-tasks.ts",
     "collect-docs": "npx tsx scripts/collect-docs.ts",
-    "analyze": "npx tsx scripts/analyze.ts"
+    "analyze": "npx tsx scripts/analyze.ts",
+    "oauth": "npx tsx scripts/oauth.ts",
+    "oauth:renew": "npx tsx scripts/oauth.ts --renew",
+    "collect-im": "npx tsx scripts/collect-im.ts"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.35.0",

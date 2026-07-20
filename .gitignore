@@ -1,4 +1,15 @@
 .env
 .feishu-cookies.json
+.feishu-user-token.json
 node_modules/
 template.md
+
+# 采集生成的数据文件
+messages.json
+calendar.json
+tasks.json
+docs.json
+report.json
+merged-data.json
+
+.tmp/

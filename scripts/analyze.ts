@@ -125,6 +125,28 @@ function parseReport(content: string): Report {
   }
 }
 
+function fallbackReport(messages: Message[]): Report {
+  // 过滤掉 @_all 广播、纯表情、过短内容
+  const workKeywords = ['完成', '上线', '发布', '部署', '修复', 'bug', '需求', '开发', '对接', '接口', '重构', '优化', '提测', '合并', '联调', '修复', '解决', '推进', 'review', '测试', '设计', '方案', '任务', '迭代']
+  const relevant = messages.filter(m => {
+    const c = m.content
+    if (c.includes('@_all')) return false
+    if (c.length < 8) return false
+    return workKeywords.some(k => c.toLowerCase().includes(k.toLowerCase()))
+  })
+
+  // 提取前 15 条相关工作消息作为"本周完成"
+  const completed = relevant.slice(0, 15).map(m => `- ${m.content.replace(/\n/g, ' ').slice(0, 80)}`).join('\n')
+
+  return {
+    completed: completed || '本周无明确工作记录',
+    uncompleted: '（待补充）',
+    nextPlan: '（待补充）',
+    help: '（待补充）',
+    reflection: '（待补充）',
+  }
+}
+
 async function main() {
   const messagesPath = process.argv[2] || 'messages.json'
 
@@ -136,14 +158,21 @@ async function main() {
   const messages: Message[] = JSON.parse(readFileSync(messagesPath, 'utf-8'))
   console.log(`读取 ${messages.length} 条消息`)
 
-  console.log('获取飞书 token...')
-  const token = await getTenantToken()
+  let report: Report
 
-  console.log('调用飞书知识问答 API...')
-  const content = await askAily(token, messages)
+  try {
+    console.log('获取飞书 token...')
+    const token = await getTenantToken()
 
-  console.log('解析周报内容...')
-  const report = parseReport(content)
+    console.log('调用飞书知识问答 API...')
+    const content = await askAily(token, messages)
+
+    console.log('解析周报内容...')
+    report = parseReport(content)
+  } catch (e) {
+    console.log(`\n⚠ AI 分析失败（${e instanceof Error ? e.message : '未知错误'}），使用本地关键词提取兜底`)
+    report = fallbackReport(messages)
+  }
 
   const outputPath = 'report.json'
   writeFileSync(outputPath, JSON.stringify(report, null, 2))
@@ -151,7 +180,7 @@ async function main() {
 
   // 输出周报内容供检查
   console.log('\n生成的周报内容:')
-  console.log('本周完成:', report.completed)
+  console.log('本周完成:', report.completed.slice(0, 100))
   console.log('未完成:', report.uncompleted)
   console.log('下周计划:', report.nextPlan)
   console.log('需要协调:', report.help)
