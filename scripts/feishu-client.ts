@@ -2,6 +2,13 @@ import type { FeishuConfig } from './types.ts'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 
 const TOKEN_PATH = new URL('../.feishu-user-token.json', import.meta.url).pathname
+const REQUIRED_SCOPES = [
+  'im:message:readonly',
+  'contact:user.base:readonly',
+  'calendar:calendar:readonly',
+  'task:task:read',
+  'docs:doc:readonly',
+]
 
 interface UserToken {
   access_token: string
@@ -53,6 +60,15 @@ export class FeishuClient {
 
   async getUserToken(): Promise<string | null> {
     if (!this.userToken) return null
+
+    // 检查 scope 是否包含所有需要的权限
+    const grantedScopes = this.userToken.scope?.split(' ') || []
+    const missingScopes = REQUIRED_SCOPES.filter(s => !grantedScopes.includes(s))
+    if (missingScopes.length > 0) {
+      console.log(`Token 缺少权限: ${missingScopes.join(', ')}，需要重新授权`)
+      this.userToken = null
+      return null
+    }
 
     if (Date.now() < this.userToken.expires_at - 60_000) {
       return this.userToken.access_token
@@ -162,15 +178,19 @@ export class FeishuClient {
     return data.data.items
   }
 
-  async getChatMessages(chatId: string, startTime: string, endTime: string): Promise<Array<{ body?: { content?: string }; msg_type?: string; sender?: { sender_id?: { open_id?: string } }; create_time?: string }>> {
+  async getChatMessages(chatId: string, startTime: string, endTime: string): Promise<Array<{ body?: { content?: string }; msg_type?: string; sender?: { id?: string; id_type?: string; sender_type?: string }; create_time?: string }>> {
     const token = await this.getBestToken()
-    const res = await fetch(
-      `https://open.feishu.cn/open-apis/im/v1/messages?container_id_type=chat&container_id=${chatId}&start_time=${startTime}&end_time=${endTime}&page_size=50`,
-      { headers: { 'Authorization': `Bearer ${token}` } }
-    )
-    const data = await res.json() as { code: number; data?: { items?: Array<{ body?: { content?: string }; msg_type?: string; sender?: { sender_id?: { open_id?: string } }; create_time?: string }> } }
-    if (data.code !== 0 || !data.data?.items) return []
-    return data.data.items
+    const allItems: Array<any> = []
+    let pageToken: string | undefined
+    do {
+      const url = `https://open.feishu.cn/open-apis/im/v1/messages?container_id_type=chat&container_id=${chatId}&start_time=${startTime}&end_time=${endTime}&page_size=50${pageToken ? `&page_token=${pageToken}` : ''}`
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } })
+      const data = await res.json() as { code: number; data?: { items?: any[]; has_more?: boolean; page_token?: string } }
+      if (data.code !== 0) break
+      if (data.data?.items) allItems.push(...data.data.items)
+      pageToken = data.data?.has_more ? data.data?.page_token : undefined
+    } while (pageToken)
+    return allItems
   }
 
   async getRecentDocTitles(_openId: string): Promise<string[]> {

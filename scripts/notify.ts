@@ -108,7 +108,22 @@ async function sendCard(openId: string, content: ReportContent) {
 }
 
 const TEMPLATE_PATH = new URL('../template.md', import.meta.url).pathname
-const content = parseTemplate(TEMPLATE_PATH)
+const REPORT_PATH = new URL('../report.json', import.meta.url).pathname
+
+// 优先使用 report.json（AI 生成的报告），否则退回到 template.md 或环境变量
+let content: ReportContent
+if (existsSync(REPORT_PATH)) {
+  const report = JSON.parse(readFileSync(REPORT_PATH, 'utf-8'))
+  content = {
+    completed: report.completed || '无',
+    uncompleted: report.uncompleted || '无',
+    nextPlan: report.nextPlan || '无',
+    help: report.help || '无',
+    reflection: report.reflection || '无',
+  }
+} else {
+  content = parseTemplate(TEMPLATE_PATH)
+}
 
 const openId = process.env.FEISHU_OPEN_ID
 if (!openId) {
