@@ -46,7 +46,31 @@ class SkillAutomation {
     try { execSync('npx tsx scripts/collect-git.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  Git 数据采集部分失败，继续...') }
 
     const data = this.prepareReportData()
+    await this.sendReportMessage(data)
+
     return { success: true, message: '数据采集完成，请让 AI 读取并分析', data }
+  }
+
+  private static async sendReportMessage(report: any): Promise<void> {
+    try {
+      const output = execSync('lark-cli user get --user_id me', { encoding: 'utf-8' })
+      const currentOpenId = output.match(/open_id:\s*(.+)/)?.[1]?.trim()
+      if (!currentOpenId) {
+        console.log('⚠️  无法获取当前用户open_id，跳过飞书消息推送')
+        return
+      }
+
+      const message = `📋 周报已生成完成\n\n` +
+        `✅ 本周完成: ${report.completed}\n\n` +
+        `📝 OA 草稿: https://oa.feishu.cn/report/record/detail?ruleId=${process.env.FEISHU_REPORT_RULE_ID}&routeFrom=/record/list\n\n` +
+        `🤖 由AI自动分析生成`;
+
+      const args = ['im', '+messages-send', '--user_id', currentOpenId, '--message', message]
+      execSync(`lark-cli ${args.join(' ')}`, { stdio: 'ignore' })
+      console.log('✅ 飞书消息已推送至个人端')
+    } catch (error: any) {
+      console.log('⚠️  飞书消息推送失败:', error.message)
+    }
   }
 
   private static checkLogin(): { valid: boolean } {
