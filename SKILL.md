@@ -42,7 +42,7 @@ lark-cli auth login --domain im,calendar,task  # 扫码 2：一次性授权所�
 
 登录后 Token 自动保存，后续无需重复登录。
 
-> **首次只需扫码 2 次**，不要用 `--recommend`（权限不全，后续会再要求扫码）。用 `--domain im,calendar,task` 一次覆盖所有需要的域。
+> **首次配置需扫码 2 次**（config + auth），后续运行 **0 次**。不要用 `--recommend`（权限不全，后续会再要求扫码补权限）。
 
 ### 项目结构
 
