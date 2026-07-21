@@ -1,0 +1,63 @@
+{
+  "hasGit": true,
+  "hasUser": true,
+  "userInfo": {
+    "name": "kim",
+    "email": "chaixiubing@9186.com"
+  },
+  "commits": [
+    {
+      "hash": "7da8e6a1",
+      "message": "fix: Windows兼容性，使用fileURLToPath替代.pathname",
+      "date": "2026-07-20",
+      "author": "kim",
+      "email": "chaixiubing@9186.com"
+    },
+    {
+      "hash": "4dbdf92b",
+      "message": "refactor: 恢复AI分析流程，移除analyze依赖，修复sender.id和分页",
+      "date": "2026-07-20",
+      "author": "kim",
+      "email": "chaixiubing@9186.com"
+    },
+    {
+      "hash": "af883899",
+      "message": "update",
+      "date": "2026-07-20",
+      "author": "kim",
+      "email": "chaixiubing@9186.com"
+    }
+  ],
+  "workItems": [
+    {
+      "type": "bugfix",
+      "description": "fix: Windows兼容性，使用fileURLToPath替代.pathname",
+      "commitHash": "7da8e6a1",
+      "date": "2026-07-20",
+      "priority": "high"
+    },
+    {
+      "type": "bugfix",
+      "description": "refactor: 恢复AI分析流程，移除analyze依赖，修复sender.id和分页",
+      "commitHash": "4dbdf92b",
+      "date": "2026-07-20",
+      "priority": "high"
+    },
+    {
+      "type": "other",
+      "description": "update",
+      "commitHash": "af883899",
+      "date": "2026-07-20",
+      "priority": "medium"
+    }
+  ],
+  "reportText": "【代码提交】\n\nBug 修复:\n  • fix: Windows兼容性，使用fileURLToPath替代.pathname\n  • refactor: 恢复AI分析流程，移除analyze依赖，修复sender.id和分页\n\n其他工作:\n  • update",
+  "summary": {
+    "totalCommits": 3,
+    "workItems": 3,
+    "byType": {
+      "bugfix": 2,
+      "other": 1
+    }
+  }
+}

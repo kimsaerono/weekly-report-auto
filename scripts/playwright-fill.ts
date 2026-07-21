@@ -3,6 +3,9 @@ import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { setTimeout } from 'timers/promises'
 import { fileURLToPath } from 'node:url'
+import { config } from 'dotenv'
+
+config()
 
 const RULE_ID = process.env.FEISHU_REPORT_RULE_ID
 if (!RULE_ID) { console.error('请配置 FEISHU_REPORT_RULE_ID'); process.exit(1) }

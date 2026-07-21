@@ -3,23 +3,14 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "postinstall": "npx playwright install chromium 2>/dev/null || true",
-    "start": "npx tsx scripts/index.ts",
-    "setup": "npx tsx scripts/setup.ts",
-    "fill-report": "npx tsx scripts/playwright-fill.ts",
-    "notify": "npx tsx scripts/notify.ts",
-    "collect": "npx tsx scripts/collect.ts",
-    "collect-all": "npx tsx scripts/collect-all.ts",
-    "collect-calendar": "npx tsx scripts/collect-calendar.ts",
-    "collect-tasks": "npx tsx scripts/collect-tasks.ts",
-    "collect-docs": "npx tsx scripts/collect-docs.ts",
-    "analyze": "npx tsx scripts/analyze.ts",
-    "oauth": "npx tsx scripts/oauth.ts",
-    "oauth:renew": "npx tsx scripts/oauth.ts --renew",
-    "collect-im": "npx tsx scripts/collect-im.ts"
+    "start": "npx tsx scripts/skill-auto.ts",
+    "collect:lark": "npx tsx scripts/collect-lark.ts",
+    "collect:git": "npx tsx scripts/collect-git.ts",
+    "fill": "npx tsx scripts/playwright-fill.ts",
+    "notify": "npx tsx scripts/notify-final.ts"
   },
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.35.0",
+    "@larksuite/cli": "latest",
     "dotenv": "^17.4.2",
     "playwright": "^1.48.0"
   },
