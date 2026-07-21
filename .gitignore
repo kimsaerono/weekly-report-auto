@@ -13,3 +13,8 @@ report.json
 merged-data.json
 
 .tmp/
+
+collected-data.json
+git-commits.json
+report.json
+lark-qr.png

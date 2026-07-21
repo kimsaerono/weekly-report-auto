@@ -212,8 +212,8 @@ async function fillReport(content: ReportContent) {
     await page.keyboard.press('Backspace')
     await setTimeout(200)
 
-    // 输入纯文本内容
-    const lines = field.value.split('\n').filter(Boolean)
+    // 输入纯文本内容（自动去掉序号前缀，防止与OA自动编号重复）
+    const lines = field.value.split('\n').filter(Boolean).map(line => line.replace(/^\d+\.\s*/, ''))
     for (let j = 0; j < lines.length; j++) {
       await page.keyboard.type(lines[j], { delay: 3 })
       // 不是最后一行才按回车
