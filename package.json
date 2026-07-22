@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "start": "npx tsx scripts/skill-auto.ts",
+    "setup": "npx tsx scripts/register-app.ts",
     "collect:lark": "npx tsx scripts/collect-lark.ts",
     "collect:git": "npx tsx scripts/collect-git.ts",
     "fill": "npx tsx scripts/playwright-fill.ts",
@@ -11,6 +12,7 @@
   },
   "dependencies": {
     "@larksuite/cli": "latest",
+    "@larksuiteoapi/node-sdk": "^1.71.1",
     "dotenv": "^17.4.2",
     "playwright": "^1.48.0"
   },
