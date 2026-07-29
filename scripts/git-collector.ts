@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { existsSync } from 'fs'
+import { existsSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join, relative } from 'path'
 
@@ -20,22 +20,46 @@ export class GitCollector {
 
   static discoverRepos(searchDirs: string[]): string[] {
     const repoSet = new Set<string>()
+    const isWin = process.platform === 'win32'
+
     for (const dir of searchDirs) {
       if (!existsSync(dir)) continue
       try {
-        const output = execSync(
-          `find "${dir}" -name ".git" -maxdepth 4 -type d 2>/dev/null`,
-          { encoding: 'utf-8', timeout: 15000 }
-        )
-        for (const line of output.trim().split('\n').filter(Boolean)) {
-          const repoPath = line.replace(/\/\.git$/, '')
-          if (!repoPath.includes('/node_modules/') && !repoPath.includes('/.hermes/') && !repoPath.includes('/.agents/') && !repoPath.includes('/.opencode/')) {
-            repoSet.add(repoPath)
+        if (isWin) {
+          this.walkForRepos(dir, repoSet, 0, 4)
+        } else {
+          const sep = isWin ? '\\' : '/'
+          const output = execSync(
+            `find "${dir}" -name ".git" -maxdepth 4 -type d 2>/dev/null`,
+            { encoding: 'utf-8', timeout: 15000 }
+          )
+          for (const line of output.trim().split('\n').filter(Boolean)) {
+            const repoPath = line.replace(/\/\.git$/, '').replace(/\\\.git$/, '')
+            if (!repoPath.includes(`${sep}node_modules${sep}`) && !repoPath.includes(`${sep}.hermes${sep}`) && !repoPath.includes(`${sep}.agents${sep}`) && !repoPath.includes(`${sep}.opencode${sep}`)) {
+              repoSet.add(repoPath)
+            }
           }
         }
       } catch { continue }
     }
     return [...repoSet].sort()
+  }
+
+  private static walkForRepos(dir: string, repos: Set<string>, depth: number, maxDepth: number): void {
+    if (depth > maxDepth) return
+    try {
+      const entries = readdirSync(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name === 'node_modules' || entry.name === '.hermes' || entry.name === '.agents' || entry.name === '.opencode') continue
+        if (entry.name === '.git' && entry.isDirectory()) {
+          repos.add(dir)
+          continue
+        }
+        if (entry.isDirectory() && !entry.name.startsWith('.')) {
+          this.walkForRepos(join(dir, entry.name), repos, depth + 1, maxDepth)
+        }
+      }
+    } catch { return }
   }
 
   static collectFromRepo(repoPath: string, authorName: string, since: string, until: string): GitCommit[] {
@@ -81,7 +105,10 @@ export class GitCollector {
     sunday.setHours(23, 59, 59, 999)
     const until = sunday.toISOString().split('T')[0]
 
-    const defaultDirs = [join(homedir(), 'workspace'), process.cwd()]
+    const commonDevDirs = ['workspace', 'Projects', 'code', 'dev', 'src', 'project', 'repos']
+      .map(d => join(homedir(), d))
+      .filter(d => existsSync(d))
+    const defaultDirs = [...new Set([...commonDevDirs, process.cwd()])]
     const repos = this.discoverRepos(searchDirs || defaultDirs)
     console.log(`🔍 找到 ${repos.length} 个 Git 仓库`)
     console.log(`👤 作者: ${userInfo.name} <${userInfo.email}>`)

@@ -70,43 +70,55 @@ async function collectData() {
 
 async function collectMessages(): Promise<any[]> {
   const allMessages: any[] = []
+  const seenIds = new Set<string>()
 
-  // 获取群列表
-  const chatListRes = execLarkCli('im +chat-list --page-size 100')
-  if (!chatListRes?.ok) {
-    throw new Error('获取群列表失败')
+  function pushMessage(msg: any, chatId: string, chatName: string, chatType: string) {
+    if (seenIds.has(msg.message_id)) return
+    seenIds.add(msg.message_id)
+    allMessages.push({
+      chat_id: chatId,
+      chat_name: chatName || '未知',
+      chat_type: chatType,
+      content: msg.content || '',
+      create_time: msg.create_time,
+      message_id: msg.message_id,
+      sender: {
+        id: msg.sender?.id,
+        id_type: msg.sender?.id_type,
+        name: msg.sender?.name || msg.sender?.id,
+        sender_type: msg.sender?.sender_type,
+      },
+    })
   }
 
-  const chats = chatListRes.data?.chats || []
-  console.log(`📋 找到 ${chats.length} 个群`)
+  // 群聊消息
+  const chatListRes = execLarkCli('im +chat-list --page-size 100')
+  if (chatListRes?.ok) {
+    const chats = chatListRes.data?.chats || []
+    console.log(`📋 找到 ${chats.length} 个群`)
 
-  for (const chat of chats) {
-    if (!chat.chat_id) continue
+    for (const chat of chats) {
+      if (!chat.chat_id) continue
+      try {
+        const messagesRes = execLarkCli(`im +messages-search --chat-id ${chat.chat_id} --start "${startTimeISO}" --end "${endTimeISO}" --page-size 50`)
+        if (messagesRes?.ok) {
+          for (const msg of (messagesRes.data?.messages || [])) {
+            pushMessage(msg, chat.chat_id, chat.name || '未知', chat.chat_mode || 'group')
+          }
+        }
+      } catch {}
+    }
+  }
 
-    try {
-      // 获取群消息
-      const messagesRes = execLarkCli(`im +messages-search --chat-id ${chat.chat_id} --start "${startTimeISO}" --end "${endTimeISO}" --page-size 50`)
-      
-      if (!messagesRes?.ok) continue
-
-      const messages = messagesRes.data?.messages || []
-      for (const msg of messages) {
-        allMessages.push({
-          chat_id: chat.chat_id,
-          chat_name: chat.name || '未知',
-          chat_type: chat.chat_mode || 'group',
-          content: msg.content || '',
-          create_time: msg.create_time,
-          message_id: msg.message_id,
-          sender: {
-            id: msg.sender?.id,
-            id_type: msg.sender?.id_type,
-            name: msg.sender?.name || msg.sender?.id,
-            sender_type: msg.sender?.sender_type,
-          },
-        })
+  // 私聊消息（不指定 chat-id 全量搜索，过滤出 p2p 类型）
+  const allSearchRes = execLarkCli(`im +messages-search --start "${startTimeISO}" --end "${endTimeISO}" --page-size 100`)
+  if (allSearchRes?.ok) {
+    for (const msg of (allSearchRes.data?.messages || [])) {
+      const chatType = msg.chat_type || msg.chat_mode || ''
+      if (chatType === 'p2p' || chatType === 'private') {
+        pushMessage(msg, msg.chat_id || '', msg.chat_name || '私聊', 'p2p')
       }
-    } catch {}
+    }
   }
 
   return allMessages
