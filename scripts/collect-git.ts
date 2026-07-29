@@ -2,14 +2,7 @@
 import { GitCollector } from './git-collector.ts'
 import { writeFileSync } from 'fs'
 
-console.log('🔍 检查 Git 仓库...\n')
-
-if (!GitCollector.isGitRepo()) {
-  console.log('ℹ️  当前目录不是 Git 仓库，跳过代码采集')
-  console.log('   （非技术团队无需此步骤）\n')
-  writeFileSync('git-commits.json', JSON.stringify({ hasGit: false, commits: [], workItems: [], reportText: '' }, null, 2))
-  process.exit(0)
-}
+console.log('🔍 扫描 Git 仓库...\n')
 
 const userInfo = GitCollector.getGitUserInfo()
 if (!userInfo) {
@@ -18,27 +11,26 @@ if (!userInfo) {
   process.exit(0)
 }
 
-console.log(`✅ Git 仓库 detected\n   用户: ${userInfo.name} <${userInfo.email}>\n`)
-
-console.log('📊 采集本周提交记录...')
-const commits = GitCollector.collectWeekCommits()
+const result = GitCollector.collectAllCommits()
+const commits = result.commits
 
 if (commits.length === 0) {
-  console.log('ℹ️  本周暂无代码提交\n')
-  writeFileSync('git-commits.json', JSON.stringify({ hasGit: true, hasUser: true, commits: [], workItems: [], reportText: '' }, null, 2))
+  console.log('\nℹ️  本周暂无代码提交\n')
+  writeFileSync('git-commits.json', JSON.stringify({ hasGit: true, hasUser: true, commits: [], workItems: [], reportText: '', scannedRepos: result.repos, repoCount: result.repoCount, userInfo }, null, 2))
   process.exit(0)
 }
 
-console.log(`✅ 找到 ${commits.length} 条提交记录\n`)
-
-console.log('🤖 分析提交内容...')
+console.log(`\n🤖 分析提交内容...`)
 const workItems = GitCollector.analyzeCommits(commits)
 console.log(`✅ 整理为 ${workItems.length} 个工作项\n`)
 
 const reportText = GitCollector.generateReportText(workItems)
 
 const data = {
-  hasGit: true, hasUser: true, userInfo, commits, workItems, reportText,
+  hasGit: true, hasUser: true, userInfo,
+  commits, workItems, reportText,
+  scannedRepos: result.repos,
+  repoCount: result.repoCount,
   summary: {
     totalCommits: commits.length,
     workItems: workItems.length,

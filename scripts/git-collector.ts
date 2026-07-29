@@ -1,9 +1,11 @@
 import { execSync } from 'child_process'
 import { existsSync } from 'fs'
+import { homedir } from 'os'
+import { join, relative } from 'path'
 
 export class GitCollector {
-  static isGitRepo(): boolean {
-    return existsSync('.git')
+  static isGitRepo(path?: string): boolean {
+    return existsSync(path ? join(path, '.git') : '.git')
   }
 
   static getGitUserInfo(): { name: string; email: string } | null {
@@ -16,48 +18,98 @@ export class GitCollector {
     }
   }
 
-  static collectWeekCommits(): GitCommit[] {
-    if (!this.isGitRepo()) return []
-    const userInfo = this.getGitUserInfo()
-    if (!userInfo) return []
+  static discoverRepos(searchDirs: string[]): string[] {
+    const repoSet = new Set<string>()
+    for (const dir of searchDirs) {
+      if (!existsSync(dir)) continue
+      try {
+        const output = execSync(
+          `find "${dir}" -name ".git" -maxdepth 4 -type d 2>/dev/null`,
+          { encoding: 'utf-8', timeout: 15000 }
+        )
+        for (const line of output.trim().split('\n').filter(Boolean)) {
+          const repoPath = line.replace(/\/\.git$/, '')
+          if (!repoPath.includes('/node_modules/') && !repoPath.includes('/.hermes/') && !repoPath.includes('/.agents/') && !repoPath.includes('/.opencode/')) {
+            repoSet.add(repoPath)
+          }
+        }
+      } catch { continue }
+    }
+    return [...repoSet].sort()
+  }
 
+  static collectFromRepo(repoPath: string, authorName: string, since: string, until: string): GitCommit[] {
     try {
       const format = '%H|%s|%ad|%an|%ae'
-      const since = this.getWeekStart()
-      const until = this.getWeekEnd()
       const output = execSync(
-        `git log --since="${since}" --until="${until}" --author="${userInfo.name}" --format="${format}" --date=short`,
-        { encoding: 'utf-8' }
+        `git log --since="${since}" --until="${until}" --author="${authorName}" --format="${format}" --date=short`,
+        { encoding: 'utf-8', cwd: repoPath }
       )
       if (!output.trim()) return []
-      return output.trim().split('\n').map(line => this.parseCommit(line)).filter(Boolean) as GitCommit[]
+      return output.trim().split('\n').map(line => {
+        const parts = line.split('|')
+        if (parts.length < 5) return null
+        return {
+          hash: parts[0].substring(0, 8),
+          message: parts[1],
+          date: parts[2],
+          author: parts[3],
+          email: parts[4],
+          repo: relative(homedir(), repoPath),
+        }
+      }).filter(Boolean) as GitCommit[]
     } catch {
       return []
     }
   }
 
-  private static parseCommit(line: string): GitCommit | null {
-    const parts = line.split('|')
-    if (parts.length < 5) return null
-    return { hash: parts[0].substring(0, 8), message: parts[1], date: parts[2], author: parts[3], email: parts[4] }
-  }
+  static collectAllCommits(searchDirs?: string[]): { commits: GitCommit[]; repoCount: number; repos: string[] } {
+    const userInfo = this.getGitUserInfo()
+    if (!userInfo) {
+      return { commits: [], repoCount: 0, repos: [] }
+    }
 
-  private static getWeekStart(): string {
     const now = new Date()
     const day = now.getDay() || 7
     const monday = new Date(now)
     monday.setDate(now.getDate() - day + 1)
     monday.setHours(0, 0, 0, 0)
-    return monday.toISOString().split('T')[0]
-  }
+    const since = monday.toISOString().split('T')[0]
 
-  private static getWeekEnd(): string {
-    const now = new Date()
-    const day = now.getDay() || 7
     const sunday = new Date(now)
     sunday.setDate(now.getDate() - day + 7)
     sunday.setHours(23, 59, 59, 999)
-    return sunday.toISOString().split('T')[0]
+    const until = sunday.toISOString().split('T')[0]
+
+    const defaultDirs = [join(homedir(), 'workspace'), process.cwd()]
+    const repos = this.discoverRepos(searchDirs || defaultDirs)
+    console.log(`🔍 找到 ${repos.length} 个 Git 仓库`)
+    console.log(`👤 作者: ${userInfo.name} <${userInfo.email}>`)
+    console.log(`📅 时间范围: ${since} ~ ${until}\n`)
+
+    const allCommits: GitCommit[] = []
+    let validRepoCount = 0
+
+    for (const repo of repos) {
+      const commits = this.collectFromRepo(repo, userInfo.name, since, until)
+      if (commits.length > 0) {
+        console.log(`  ${relative(homedir(), repo)} → ${commits.length} 条提交`)
+        allCommits.push(...commits)
+        validRepoCount++
+      }
+    }
+
+    if (validRepoCount === 0) {
+      console.log('ℹ️  本周暂无提交')
+    } else {
+      console.log(`\n✅ 共 ${validRepoCount} 个仓库有提交，${allCommits.length} 条记录`)
+    }
+
+    return {
+      commits: allCommits,
+      repoCount: repos.length,
+      repos: repos.map(r => relative(homedir(), r)),
+    }
   }
 
   static analyzeCommits(commits: GitCommit[]): GitWorkItem[] {
@@ -85,7 +137,7 @@ export class GitCollector {
     } else if (msg.includes('test') || msg.includes('测试')) {
       type = 'test'
     }
-    return { type, description: commit.message, commitHash: commit.hash, date: commit.date, priority }
+    return { type, description: commit.message, commitHash: commit.hash, date: commit.date, priority, repo: commit.repo }
   }
 
   private static isNoiseCommit(message: string): boolean {
@@ -151,6 +203,7 @@ export interface GitCommit {
   date: string
   author: string
   email: string
+  repo?: string
 }
 
 export interface GitWorkItem {
@@ -159,4 +212,5 @@ export interface GitWorkItem {
   commitHash: string
   date: string
   priority: 'high' | 'medium' | 'low'
+  repo?: string
 }

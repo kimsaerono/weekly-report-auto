@@ -2,7 +2,7 @@
 import { execSync } from 'child_process'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
-import { getWeekRange, formatTimestamp } from './time-utils.ts'
+import { getWeekRange, formatTimestamp, isThisWeek } from './time-utils.ts'
 
 console.log('🚀 使用 lark-cli 采集数据...\n')
 
@@ -182,7 +182,16 @@ async function collectTasks(): Promise<{ completed: any[]; incomplete: any[] }> 
     }
   }
 
-  return { completed, incomplete }
+  // 只保留本周有活动的任务
+  const isDateThisWeek = (dateStr: string | null | undefined): boolean => {
+    if (!dateStr) return false
+    try { return isThisWeek(new Date(dateStr)) } catch { return false }
+  }
+
+  return {
+    completed: completed.filter(t => isDateThisWeek(t.completed_at)),
+    incomplete: incomplete.filter(t => isDateThisWeek(t.updated_at) || isDateThisWeek(t.created_at)),
+  }
 }
 
 collectData().catch(err => {
