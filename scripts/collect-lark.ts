@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { execSync } from 'child_process'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
 import { getWeekRange, formatTimestamp, isThisWeek } from './time-utils.ts'
 
 console.log('🚀 使用 lark-cli 采集数据...\n')
 
-const { start, end, startStr, endStr } = getWeekRange()
-console.log(`📅 时间范围: ${startStr} - ${endStr}\n`)
+const weekOffset = Number(process.env.WEEK_OFFSET || 0)
+const { start, end, startStr, endStr } = getWeekRange({ weekOffset })
+console.log(`📅 时间范围: ${startStr} - ${endStr}（周偏移: ${weekOffset}）\n`)
 
 const startTimeISO = formatTimestamp(start)
 const endTimeISO = formatTimestamp(end)
@@ -16,11 +17,10 @@ const endTimeSec = String(Math.floor(end / 1000))
 
 function execLarkCli(command: string): any {
   try {
-    const result = execSync(`lark-cli ${command} --json`, { encoding: 'utf-8' })
+    const result = execSync(`${command} --json`, { encoding: 'utf-8', maxBuffer: 128 * 1024 * 1024 })
     return JSON.parse(result)
   } catch (error: any) {
     console.error(`❌ lark-cli 命令失败: ${command}`)
-    console.error(error.message)
     return null
   }
 }
@@ -31,10 +31,10 @@ async function collectData() {
     collectedAt: new Date().toISOString(),
   }
 
-  // 采集消息
+  // 采集消息（全局搜索，含群聊与私聊，快速）
   console.log('📨 采集消息...')
   try {
-    const messages = await collectMessages()
+    const messages = await collectMessagesGlobal()
     data.messages = messages
     console.log(`✅ ${messages.length} 条消息\n`)
   } catch (error: any) {
@@ -53,7 +53,7 @@ async function collectData() {
     data.calendar = []
   }
 
-  // 采集任务
+  // 采集任务（我分配的 + 我创建的 + 相关的）
   console.log('✅ 采集任务...')
   try {
     const tasks = await collectTasks()
@@ -68,57 +68,38 @@ async function collectData() {
   console.log('✅ 数据采集完成！\n📁 数据已保存到 collected-data.json')
 }
 
-async function collectMessages(): Promise<any[]> {
+async function collectMessagesGlobal(): Promise<any[]> {
   const allMessages: any[] = []
   const seenIds = new Set<string>()
 
-  function pushMessage(msg: any, chatId: string, chatName: string, chatType: string) {
-    if (seenIds.has(msg.message_id)) return
+  function pushMessage(msg: any) {
+    if (!msg || seenIds.has(msg.message_id)) return
     seenIds.add(msg.message_id)
     allMessages.push({
-      chat_id: chatId,
-      chat_name: chatName || '未知',
-      chat_type: chatType,
-      content: msg.content || '',
+      chat_id: msg.chat_id || '',
+      chat_name: msg.chat_name || msg.chat_id?.substring(0, 10) || '未知',
+      chat_type: msg.chat_type || msg.chat_mode || 'group',
+      content: msg.content || msg.text || '',
       create_time: msg.create_time,
       message_id: msg.message_id,
       sender: {
-        id: msg.sender?.id,
+        id: msg.sender?.id || msg.sender_id,
         id_type: msg.sender?.id_type,
-        name: msg.sender?.name || msg.sender?.id,
+        name: msg.sender?.name || msg.sender?.sender_type || msg.sender?.id?.substring(0, 8) || '未知',
         sender_type: msg.sender?.sender_type,
       },
     })
   }
 
-  // 群聊消息
-  const chatListRes = execLarkCli('im +chat-list --page-size 100')
-  if (chatListRes?.ok) {
-    const chats = chatListRes.data?.chats || []
-    console.log(`📋 找到 ${chats.length} 个群`)
-
-    for (const chat of chats) {
-      if (!chat.chat_id) continue
-      try {
-        const messagesRes = execLarkCli(`im +messages-search --chat-id ${chat.chat_id} --start "${startTimeISO}" --end "${endTimeISO}" --page-size 50`)
-        if (messagesRes?.ok) {
-          for (const msg of (messagesRes.data?.messages || [])) {
-            pushMessage(msg, chat.chat_id, chat.name || '未知', chat.chat_mode || 'group')
-          }
-        }
-      } catch {}
-    }
-  }
-
-  // 私聊消息（不指定 chat-id 全量搜索，过滤出 p2p 类型）
-  const allSearchRes = execLarkCli(`im +messages-search --start "${startTimeISO}" --end "${endTimeISO}" --page-size 100`)
-  if (allSearchRes?.ok) {
-    for (const msg of (allSearchRes.data?.messages || [])) {
-      const chatType = msg.chat_type || msg.chat_mode || ''
-      if (chatType === 'p2p' || chatType === 'private') {
-        pushMessage(msg, msg.chat_id || '', msg.chat_name || '私聊', 'p2p')
+  // 群聊 + 私聊一次搜索抓全（--page-all 自动翻页）
+  for (const chatType of ['group', 'p2p']) {
+    try {
+      const res = execLarkCli(`lark-cli im +messages-search --start "${startTimeISO}" --end "${endTimeISO}" --chat-type ${chatType} --page-size 50 --page-all`)
+      if (res?.ok) {
+        const msgs = res.data?.messages || []
+        for (const msg of msgs) pushMessage(msg)
       }
-    }
+    } catch {}
   }
 
   return allMessages
@@ -127,8 +108,7 @@ async function collectMessages(): Promise<any[]> {
 async function collectCalendarEvents(): Promise<any[]> {
   const allEvents: any[] = []
 
-  // 获取日历列表
-  const calendarListRes = execLarkCli('calendar calendars list')
+  const calendarListRes = execLarkCli('lark-cli calendar calendars list')
   if (!calendarListRes?.ok) {
     throw new Error('获取日历列表失败')
   }
@@ -138,11 +118,8 @@ async function collectCalendarEvents(): Promise<any[]> {
 
   for (const calendar of calendars) {
     if (!calendar.calendar_id) continue
-
     try {
-      // 获取日历事件
-      const eventsRes = execLarkCli(`calendar events instance_view --calendar-id ${calendar.calendar_id} --start-time ${startTimeSec} --end-time ${endTimeSec}`)
-      
+      const eventsRes = execLarkCli(`lark-cli calendar events instance_view --calendar-id ${calendar.calendar_id} --start-time ${startTimeSec} --end-time ${endTimeSec}`)
       if (!eventsRes?.ok) continue
 
       const events = eventsRes.data?.items || []
@@ -165,17 +142,11 @@ async function collectCalendarEvents(): Promise<any[]> {
 async function collectTasks(): Promise<{ completed: any[]; incomplete: any[] }> {
   const completed: any[] = []
   const incomplete: any[] = []
+  const seenGuids = new Set<string>()
 
-  // 获取任务列表
-  const tasksRes = execLarkCli('task +get-my-tasks')
-  if (!tasksRes?.ok) {
-    throw new Error('获取任务列表失败')
-  }
-
-  const tasks = tasksRes.data?.items || []
-  console.log(`✅ 找到 ${tasks.length} 个任务`)
-
-  for (const task of tasks) {
+  const pushTask = (task: any) => {
+    if (!task || seenGuids.has(task.guid)) return
+    seenGuids.add(task.guid)
     const taskData = {
       guid: task.guid,
       summary: task.summary,
@@ -194,6 +165,18 @@ async function collectTasks(): Promise<{ completed: any[]; incomplete: any[] }> 
     }
   }
 
+  // 我分配给我的任务
+  const myTasksRes = execLarkCli('lark-cli task +get-my-tasks --page-all')
+  if (myTasksRes?.ok) {
+    for (const task of (myTasksRes.data?.items || [])) pushTask(task)
+  }
+
+  // 与我相关的任务（含我创建的）
+  const relatedRes = execLarkCli('lark-cli task +get-related-tasks --page-all')
+  if (relatedRes?.ok) {
+    for (const task of (relatedRes.data?.items || [])) pushTask(task)
+  }
+
   // 只保留本周有活动的任务
   const isDateThisWeek = (dateStr: string | null | undefined): boolean => {
     if (!dateStr) return false
@@ -201,7 +184,7 @@ async function collectTasks(): Promise<{ completed: any[]; incomplete: any[] }> 
   }
 
   return {
-    completed: completed.filter(t => isDateThisWeek(t.completed_at)),
+    completed: completed.filter(t => isDateThisWeek(t.completed_at) || isDateThisWeek(t.updated_at) || isDateThisWeek(t.created_at)),
     incomplete: incomplete.filter(t => isDateThisWeek(t.updated_at) || isDateThisWeek(t.created_at)),
   }
 }

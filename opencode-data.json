@@ -1,0 +1,36 @@
+{
+  "hasOpenCode": true,
+  "weekRange": {
+    "start": "2026-09-07",
+    "end": "2026-09-13"
+  },
+  "sessions": [
+    {
+      "id": "ses_f852722abffem8ZrJU3CTZEplJ",
+      "title": "本地Function Calling架构实现",
+      "directory": "/Users/kim/workspace/hy/汇元/huiwork-web",
+      "project_id": "74d1af6018f224ff002b38680e0fe802d92d46ad",
+      "time_created": "2026-09-07 07:50",
+      "time_updated": "2026-09-07 07:51",
+      "cost": 0,
+      "tokens_input": 38731,
+      "tokens_output": 1212
+    }
+  ],
+  "topSessions": [
+    {
+      "id": "ses_f852722abffem8ZrJU3CTZEplJ",
+      "title": "本地Function Calling架构实现",
+      "directory": "/Users/kim/workspace/hy/汇元/huiwork-web",
+      "project_id": "74d1af6018f224ff002b38680e0fe802d92d46ad",
+      "time_created": "2026-09-07 07:50",
+      "time_updated": "2026-09-07 07:51",
+      "cost": 0,
+      "tokens_input": 38731,
+      "tokens_output": 1212
+    }
+  ],
+  "workSummary": [
+    "[huiwork-web] 本地Function Calling架构实现"
+  ]
+}

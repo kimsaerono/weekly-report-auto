@@ -3,6 +3,13 @@ import { existsSync, readdirSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join, relative } from 'path'
 
+function formatLocal(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 export class GitCollector {
   static isGitRepo(path?: string): boolean {
     return existsSync(path ? join(path, '.git') : '.git')
@@ -95,15 +102,16 @@ export class GitCollector {
 
     const now = new Date()
     const day = now.getDay() || 7
+    const weekOffset = Number(process.env.WEEK_OFFSET || 0)
     const monday = new Date(now)
-    monday.setDate(now.getDate() - day + 1)
+    monday.setDate(now.getDate() - day + 1 - weekOffset * 7)
     monday.setHours(0, 0, 0, 0)
-    const since = monday.toISOString().split('T')[0]
+    const since = formatLocal(monday)
 
     const sunday = new Date(now)
-    sunday.setDate(now.getDate() - day + 7)
+    sunday.setDate(now.getDate() - day + 7 - weekOffset * 7)
     sunday.setHours(23, 59, 59, 999)
-    const until = sunday.toISOString().split('T')[0]
+    const until = formatLocal(sunday)
 
     const commonDevDirs = ['workspace', 'Projects', 'code', 'dev', 'src', 'project', 'repos']
       .map(d => join(homedir(), d))
