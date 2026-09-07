@@ -212,13 +212,24 @@ async function fillReport(content: ReportContent) {
     await page.keyboard.press('Backspace')
     await setTimeout(200)
 
-    // OA 自动编号，这里只清理内容中已有的序号避免重复
-    const lines = field.value.split('\n').filter(Boolean).map(line => line.replace(/^\d+[\.\)、]\s*/, ''))
+    // 保留手动序号，仅清理会触发飞书联系人选择器的 @ 符号
+    // （出现 @ 后飞书会进入 @人 选择态，选择完成后光标从 "a" 接续，导致内容错乱）
+    // 层级规则：以空格缩进开头的行是二级/三级条目，用软换行（Shift+Enter）输入，
+    //   使其折叠进上一级编号块内，OA 不会重新编号；非缩进行用硬换行（Enter）独立编号。
+    const lines = field.value
+      .split('\n')
+      .filter(Boolean)
+      .map(line => line.replace(/@/g, ''))
     for (let j = 0; j < lines.length; j++) {
+      const isSub = /^\s+(?=[a-z\d])/.test(lines[j])
       await page.keyboard.type(lines[j], { delay: 3 })
-      // 不是最后一行才按回车
       if (j < lines.length - 1) {
-        await page.keyboard.press('Enter')
+        if (isSub) {
+          // 软换行，缩进 + 字母序号折叠进上一级编号块，OA 不重新编号
+          await page.keyboard.press('Shift+Enter')
+        } else {
+          await page.keyboard.press('Enter')
+        }
         await setTimeout(200)
       }
     }
