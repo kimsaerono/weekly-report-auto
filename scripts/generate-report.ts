@@ -15,6 +15,7 @@ interface ReportData {
   tasks: any
   git?: any
   opencode?: any
+  notes?: any
 }
 
 interface ReportContent {
@@ -223,8 +224,14 @@ function groupGitByRepo(gitData: any): Map<string, Map<string, string[]>> {
   const map = new Map<string, Map<string, string[]>>() // repo -> subDomain -> items[]
   if (!gitData?.commits) return map
 
+  const docFilesByRepo = new Map<string, Set<string>>()
   for (const c of gitData.commits) {
     const repo = extractProjectName(c.repo)
+    for (const f of (c.files || [])) {
+      if (!f.isDoc || !f.path) continue
+      if (!docFilesByRepo.has(repo)) docFilesByRepo.set(repo, new Set())
+      docFilesByRepo.get(repo)!.add(f.path)
+    }
     const rawMsg = c.message || '无描述'
     if (isNoise(rawMsg)) continue
     const cleanMsg = stripCommitPrefix(rawMsg)
@@ -235,6 +242,14 @@ function groupGitByRepo(gitData: any): Map<string, Map<string, string[]>> {
     const repoMap = map.get(repo)!
     if (!repoMap.has(subDomain)) repoMap.set(subDomain, [])
     repoMap.get(subDomain)!.push(cleanMsg)
+  }
+
+  for (const [repo, paths] of docFilesByRepo) {
+    if (!map.has(repo)) map.set(repo, new Map())
+    const repoMap = map.get(repo)!
+    const subDomain = '文档更新'
+    if (!repoMap.has(subDomain)) repoMap.set(subDomain, [])
+    repoMap.get(subDomain)!.push('更新文档 ' + [...paths].slice(0, 6).join(', '))
   }
   return map
 }
@@ -264,7 +279,8 @@ function groupOpencodeByProject(opencodeData: any): Map<string, Map<string, stri
 function mergeSources(
   gitByRepo: Map<string, Map<string, string[]>>,
   opencodeByProject: Map<string, Map<string, string[]>>,
-  tasksCompleted: string[]
+  tasksCompleted: string[],
+  notes: string[] = []
 ): Map<string, Map<string, string[]>> { // category -> subDomain -> items[]
   const result = new Map<string, Map<string, string[]>>()
 
@@ -305,6 +321,11 @@ function mergeSources(
     addItem('业务 & 开发', '其他任务', task)
   }
 
+  // 飞书笔记/随手记
+  for (const note of notes) {
+    addItem('二、团队效能与基础建设', '随手记', note)
+  }
+
   return result
 }
 
@@ -315,7 +336,7 @@ function formatSections(merged: Map<string, Map<string, string[]>>, template: st
   const categoryOrder = cats.length > 0 ? cats : ['一、业务&开发', '二、团队效能与基础建设']
 
   // 子域排序：业务 & 开发里的固定顺序
-  const bizSubDomains = ['AI', 'Huiworker', '知识库', 'crosspay', '权限系统', '登录组件', 'huiwork-web', 'mso', '用户后台', '其他任务']
+  const bizSubDomains = ['AI', 'Huiworker', '知识库', 'crosspay', '权限系统', '登录组件', 'huiwork-web', 'mso', '用户后台', '其他任务', '文档更新']
   const effSubDomains = ['团队效能', 'hy-templates', 'hyfe-node-dependencies', 'svg-factory', '基础建设']
 
   for (const catTitle of categoryOrder) {
@@ -403,8 +424,12 @@ function generateReport(data: ReportData, openId: string, template: string): Rep
   const tasks = analyzeTasks(data.tasks || {})
   const gitByRepo = groupGitByRepo(data.git)
   const opencodeByProject = groupOpencodeByProject(data.opencode)
+  const noteItems = (data.notes?.workSummary || []).map((n: string) => {
+    const m = n.match(/\[飞书笔记\] (.+)/)
+    return m ? m[1] : n
+  })
 
-  const merged = mergeSources(gitByRepo, opencodeByProject, tasks.completed)
+  const merged = mergeSources(gitByRepo, opencodeByProject, tasks.completed, noteItems)
   const completed = formatSections(merged, template)
   const uncompleted = generateUncompletedSection(tasks)
   const nextPlan = generateNextPlanSection(merged, tasks)
@@ -429,7 +454,8 @@ function main() {
 
   const collectedData = loadJson('collected-data.json')
   const gitData = loadJson('git-commits.json')
-  const openCodeData = loadJson('opencode-data.json')
+  const aiData = loadJson('ai-data.json')
+  const notesData = loadJson('notes-data.json')
 
   if (!collectedData) {
     console.error('❌ 未找到 collected-data.json，请先运行 collect-lark.ts')
@@ -453,7 +479,8 @@ function main() {
   const reportData: ReportData = {
     ...collectedData,
     git: gitData,
-    opencode: openCodeData
+    opencode: aiData,
+    notes: notesData
   }
 
   const report = generateReport(reportData, openId, template)

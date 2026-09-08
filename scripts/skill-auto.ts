@@ -82,9 +82,13 @@ class SkillAutomation {
     console.log('📊 采集 Git 数据...')
     try { execSync('npx tsx scripts/collect-git.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  Git 数据采集部分失败，继续...') }
 
-    // 6.5 采集 opencode/AI 对话历史
-    console.log('📊 采集 opencode/AI 对话历史...')
-    try { execSync('npx tsx scripts/collect-opencode.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  opencode 数据采集部分失败，继续...') }
+    // 6.5 采集 AI 工具会话历史（opencode / Claude Code / Cursor / Windsurf / Trae / Codeium）
+    console.log('📊 采集 AI 工具会话历史...')
+    try { execSync('npx tsx scripts/collect-ai-tools.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  AI 工具数据采集部分失败，继续...') }
+
+    // 6.6 采集飞书文档笔记（未授权时优雅跳过）
+    console.log('📓 采集飞书文档笔记...')
+    try { execSync('npx tsx scripts/collect-notes.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  笔记数据采集部分失败，继续...') }
 
     // 6.7 若本周无数据（如周一时本周才刚开始），自动回退采集上周数据
     if (!this.hasWeekData()) {
@@ -95,7 +99,8 @@ class SkillAutomation {
       }
       collectWithEnv('collect-lark.ts')
       collectWithEnv('collect-git.ts')
-      collectWithEnv('collect-opencode.ts')
+      collectWithEnv('collect-ai-tools.ts')
+      collectWithEnv('collect-notes.ts')
     }
 
     // 7. 生成周报内容
@@ -199,7 +204,8 @@ class SkillAutomation {
     const data: any = {}
     if (existsSync('collected-data.json')) Object.assign(data, JSON.parse(readFileSync('collected-data.json', 'utf-8')))
     if (existsSync('git-commits.json')) Object.assign(data, { git: JSON.parse(readFileSync('git-commits.json', 'utf-8')) })
-    if (existsSync('opencode-data.json')) Object.assign(data, { opencode: JSON.parse(readFileSync('opencode-data.json', 'utf-8')) })
+    if (existsSync('ai-data.json')) Object.assign(data, { ai: JSON.parse(readFileSync('ai-data.json', 'utf-8')) })
+    if (existsSync('notes-data.json')) Object.assign(data, { notes: JSON.parse(readFileSync('notes-data.json', 'utf-8')) })
     return data
   }
 
@@ -210,9 +216,13 @@ class SkillAutomation {
         const git = JSON.parse(readFileSync('git-commits.json', 'utf-8'))
         if (git?.commits?.length > 0) return true
       }
-      if (existsSync('opencode-data.json')) {
-        const oc = JSON.parse(readFileSync('opencode-data.json', 'utf-8'))
-        if (oc?.sessions?.length > 0) return true
+      if (existsSync('ai-data.json')) {
+        const ai = JSON.parse(readFileSync('ai-data.json', 'utf-8'))
+        if (ai?.sessions?.length > 0) return true
+      }
+      if (existsSync('notes-data.json')) {
+        const notes = JSON.parse(readFileSync('notes-data.json', 'utf-8'))
+        if (notes?.notes?.length > 0) return true
       }
       if (existsSync('collected-data.json')) {
         const c = JSON.parse(readFileSync('collected-data.json', 'utf-8'))
