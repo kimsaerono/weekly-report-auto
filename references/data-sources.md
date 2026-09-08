@@ -14,9 +14,9 @@
 每个提交额外记录改动文件：`commit.files[] = { path, status, isDoc }`。
 
 - `path` 文件路径；`status` 变更状态（A 新增 / M 修改 / D 删除 / R 重命名 / C 复制）；`isDoc` 文档类标记。
+- `summary`：采集时为文档文件自动提取内容摘要（首标题 + 主要二级章节），供周报「文档更新」分组展示。
 - 文档判定：文件名命中 `README`/`CHANGELOG`/`LICENSE`/`NOTICE`/`CONTRIBUTING` 等，或扩展名为 `.md/.txt/.rst/.adoc/.docx/.pdf`（大小写不敏感）。
-- `reportText` 末尾自动追加「文档更新」摘要列出本周改过的文档文件（`.md`/`README` 等）。
-- 周报报告里按仓库聚合文档改动，新增「文档更新」分组（如 `更新文档 REPORT_TEMPLATE.md, SKILL.md`），README 等文档改动会随周报体现。
+- 周报「文档更新」分组按 commit 聚合：一条展示一个改动文档的提交，格式 `提交语义（文件清单）`，跨提交重复文件自动去重、文件名简化为 basename，避免逐文件罗列。
 
 ### Git 扫描范围（mac/windows 全局）
 

@@ -224,14 +224,33 @@ function groupGitByRepo(gitData: any): Map<string, Map<string, string[]>> {
   const map = new Map<string, Map<string, string[]>>() // repo -> subDomain -> items[]
   if (!gitData?.commits) return map
 
-  const docFilesByRepo = new Map<string, Set<string>>()
+  const docCommitsByRepo = new Map<string, Array<{ message: string; files: string[] }>>() // repo -> commit 级文档聚合
+  const seenDocFiles = new Set<string>() // 跨 commit 去重文档文件
   for (const c of gitData.commits) {
     const repo = extractProjectName(c.repo)
-    for (const f of (c.files || [])) {
-      if (!f.isDoc || !f.path) continue
-      if (!docFilesByRepo.has(repo)) docFilesByRepo.set(repo, new Set())
-      docFilesByRepo.get(repo)!.add(f.path)
-    }
+    const docs = (c.files || []).filter((f: any) => f.isDoc && f.path && f.status !== 'D')
+    if (docs.length === 0) continue
+
+    if (!docCommitsByRepo.has(repo)) docCommitsByRepo.set(repo, [])
+    const commitDocs = docCommitsByRepo.get(repo)!
+    const existing = commitDocs.find(x => x.message === c.message)
+    if (existing) continue
+    const cleanMsg = stripCommitPrefix(c.message || '无描述')
+    commitDocs.push({
+      message: cleanMsg || c.message,
+      files: docs.map((f: any) => f.path)
+        .filter((p: string) => {
+          const name = p.split('/').pop() || p
+          if (seenDocFiles.has(name)) return false
+          seenDocFiles.add(name)
+          return true
+        })
+        .map((p: string) => p.split('/').pop() || p),
+    })
+  }
+
+  for (const c of gitData.commits) {
+    const repo = extractProjectName(c.repo)
     const rawMsg = c.message || '无描述'
     if (isNoise(rawMsg)) continue
     const cleanMsg = stripCommitPrefix(rawMsg)
@@ -244,12 +263,14 @@ function groupGitByRepo(gitData: any): Map<string, Map<string, string[]>> {
     repoMap.get(subDomain)!.push(cleanMsg)
   }
 
-  for (const [repo, paths] of docFilesByRepo) {
+  for (const [repo, commits] of docCommitsByRepo) {
     if (!map.has(repo)) map.set(repo, new Map())
     const repoMap = map.get(repo)!
     const subDomain = '文档更新'
     if (!repoMap.has(subDomain)) repoMap.set(subDomain, [])
-    repoMap.get(subDomain)!.push('更新文档 ' + [...paths].slice(0, 6).join(', '))
+    for (const dc of commits.slice(0, 5)) {
+      repoMap.get(subDomain)!.push(`${dc.message}（${dc.files.join(', ')}）`)
+    }
   }
   return map
 }
@@ -300,7 +321,8 @@ function mergeSources(
   for (const [repo, subMap] of gitByRepo) {
     for (const [subDomain, items] of subMap) {
       const category = DOMAIN_TO_CATEGORY[subDomain] || (subDomain === 'mso' ? '业务 & 开发' : '业务 & 开发')
-      for (const item of items.slice(0, 5)) {
+      const limit = subDomain === '文档更新' ? 8 : 5
+      for (const item of items.slice(0, limit)) {
         addItem(category, subDomain, item)
       }
     }
@@ -354,8 +376,9 @@ function formatSections(merged: Map<string, Map<string, string[]>>, template: st
       if (!items || items.length === 0) continue
       projectIdx++
       lines.push(`  ${projectIdx}. ${sub}`)
-      items.slice(0, 4).forEach((item, ii) => {
-        lines.push(`    ${['a', 'b', 'c', 'd'][ii]}. ${item}`)
+      const visible = sub === '文档更新' ? items.slice(0, 6) : items.slice(0, 4)
+      visible.forEach((item, ii) => {
+        lines.push(`    ${['a', 'b', 'c', 'd', 'e', 'f'][ii]}. ${item}`)
       })
     }
   }

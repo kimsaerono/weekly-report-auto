@@ -1,5 +1,5 @@
 import { execSync } from 'child_process'
-import { existsSync, readdirSync, statSync } from 'fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join, relative } from 'path'
 
@@ -128,7 +128,12 @@ export class GitCollector {
           }
         } else if (current) {
           const parsed = this.parseNameStatusLine(line)
-          if (parsed && current.files) current.files.push(parsed)
+          if (parsed && current.files) {
+            if (parsed.isDoc && parsed.status !== 'D') {
+              parsed.summary = this.extractDocSummary(repoPath, parsed.path)
+            }
+            current.files.push(parsed)
+          }
         }
       }
       if (current?.hash) commits.push(current as GitCommit)
@@ -157,6 +162,36 @@ export class GitCollector {
     const docExts = ['.md', '.txt', '.rst', '.adoc', '.docx', '.pdf']
     if (docExts.some(ext => lower.endsWith(ext))) return true
     return /^(readme|changelog|license|notice|contributing|authors|security)(\.|$)/i.test(path)
+  }
+
+  private static extractDocSummary(repoPath: string, filePath: string): string {
+    try {
+      const full = join(repoPath, filePath)
+      if (!existsSync(full)) return filePath
+      const size = statSync(full).size
+      if (size > 256 * 1024 || size === 0) return filePath
+
+      const raw = readFileSync(full, 'utf-8').replace(/\r\n/g, '\n')
+      const lines = raw.split('\n').slice(0, 300)
+
+      let start = 0
+      if (lines[0]?.trim() === '---') {
+        const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---')
+        start = end > 0 ? end + 1 : 0
+      }
+
+      const body = lines.slice(start)
+      const h1 = body.find(l => /^#\s/.test(l))?.replace(/^#\s+/, '').trim()
+      const h2s = body.filter(l => /^##\s/.test(l)).map(l => l.replace(/^##\s+/, '').trim()).slice(0, 4)
+
+      if (h1) {
+        return h2s.length > 0 ? `${h1}（${h2s.join(' / ')}）` : h1
+      }
+      const firstPara = raw.split(/\n\s*\n+/).find(p => p.replace(/[#>\s`*_\-|]/g, '').length >= 8)
+      return firstPara ? firstPara.trim().slice(0, 60) : filePath
+    } catch {
+      return filePath
+    }
   }
 
   static collectAllCommits(searchDirs?: string[]): { commits: GitCommit[]; repoCount: number; repos: string[] } {
@@ -277,26 +312,37 @@ export class GitCollector {
         lines.push(`  • ${item.description}`)
       }
     }
-    const docPaths = this.extractDocPaths(commits)
-    if (docPaths.length > 0) {
+    const docGroups = this.groupDocsByCommit(commits)
+    if (docGroups.length > 0) {
       lines.push(`\n文档更新:`)
-      for (const p of docPaths) lines.push(`  • ${p}`)
+      for (const g of docGroups) lines.push(`  • ${g}`)
     }
     return lines.join('\n')
   }
 
-  private static extractDocPaths(commits: GitCommit[]): string[] {
-    const seen = new Set<string>()
-    const paths: string[] = []
+  private static groupDocsByCommit(commits: GitCommit[]): string[] {
+    const seenFiles = new Set<string>()
+    const groups: Array<{ message: string; files: string[] }> = []
     for (const c of commits) {
-      for (const f of c.files || []) {
-        if (f.isDoc && f.status !== 'D' && !seen.has(f.path)) {
-          seen.add(f.path)
-          paths.push(f.path)
-        }
-      }
+      const docs = (c.files || []).filter(f => f.isDoc && f.path && f.status !== 'D')
+      if (docs.length === 0) continue
+      if (groups.some(g => g.message === c.message)) continue
+      groups.push({
+        message: c.message,
+        files: docs
+          .map(f => f.path)
+          .filter(p => {
+            const name = p.split('/').pop() || p
+            if (seenFiles.has(name)) return false
+            seenFiles.add(name)
+            return true
+          })
+          .map(p => p.split('/').pop() || p),
+      })
     }
-    return paths.slice(0, 10)
+    return groups
+      .slice(0, 5)
+      .map(g => `${g.message}（${g.files.join(', ')}）`)
   }
 
   private static groupByType(items: GitWorkItem[]): Record<string, GitWorkItem[]> {
@@ -329,6 +375,7 @@ export interface GitFile {
   path: string
   status: 'A' | 'M' | 'D' | 'R' | 'C'
   isDoc: boolean
+  summary?: string
 }
 
 export interface GitWorkItem {
