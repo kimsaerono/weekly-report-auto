@@ -193,6 +193,10 @@ class SkillAutomation {
       } else {
         env += `\nFEISHU_OPEN_ID="${openId}"\n`
       }
+      // 确保 FEISHU_REPORT_RULE_ID 存在
+      if (!env.includes('FEISHU_REPORT_RULE_ID=')) {
+        env += `FEISHU_REPORT_RULE_ID="7179489743821406210"\n`
+      }
     } else {
       env = `FEISHU_OPEN_ID="${openId}"\nFEISHU_REPORT_RULE_ID="7179489743821406210"\n`
     }
