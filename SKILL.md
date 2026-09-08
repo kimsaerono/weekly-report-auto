@@ -17,63 +17,33 @@ description: "Use when the user says they want to write/auto-generate/fill a wee
 - 非飞书平台的周报系统（如 Jira、Notion）
 - 用户没有飞书企业应用权限
 
-## Setup
+## 参考索引
 
-### 项目根目录
+| 需要什么 | 参考文档 |
+|---------|---------|
+| 数据源与采集器（4 类采集器、AI 工具自动发现表、笔记授权） | [references/data-sources.md](references/data-sources.md) |
+| 报告内容与 OA 自动编号规则 | [references/report-rules.md](references/report-rules.md) |
+| 安装、lark-cli 登录、补充授权、数据文件清单 | [references/setup.md](references/setup.md) |
+| 常见错误修复与历史踩坑 | [references/common-mistakes.md](references/common-mistakes.md) |
 
-所有操作在此仓库根目录执行：`~/.agents/skills/weekly-report-auto`
-
-### 安装依赖
-
-```bash
-cd ~/.agents/skills/weekly-report-auto
-npm install
-```
-
-### 飞书 CLI 登录
-
-需要安装并登录 `@larksuite/cli`：
-
-```bash
-npx @larksuite/cli@latest install
-lark-cli config init --new           # 扫码 1：配置应用
-lark-cli auth login --domain im,calendar,task  # 扫码 2：一次性授权所有域
-```
-
-登录后 Token 自动保存，后续无需重复登录。
-
-> **首次配置需扫码 2 次**（config + auth），后续运行 **0 次**。不要用 `--recommend`（权限不全，后续会再要求扫码补权限）。
-
-### 项目结构
+## 项目结构
 
 ```
 weekly-report-auto/
-├── scripts/
-│   ├── skill-auto.ts          # 主入口（采集数据）
-│   ├── collect-lark.ts        # 采集飞书数据
-│   ├── collect-git.ts         # 采集 Git 数据
-│   ├── playwright-fill.ts     # 自动填入周报草稿
-│   ├── notify-final.ts        # 飞书通知
-│   ├── lark-cli-wrapper.ts    # lark-cli 封装
-│   ├── git-collector.ts       # git 收集器
-│   ├── time-utils.ts          # 时间工具
-│   └── notify-system.ts       # 通知系统
+├── scripts/           # 全部脚本（skill-auto 主入口、采集器、填入、通知）
+├── references/        # 参考文档（本 skill 的分层说明）
+├── REPORT_TEMPLATE.md # 周报内容模板（分类与写作风格）
+├── SKILL.md           # 入口索引（本文件）
 ├── package.json
-├── .env
-├── .env.example
-├── .gitignore
-└── SKILL.md
+├── .env / .env.example
+└── .gitignore
 ```
 
 ## Execution
 
 所有命令在项目根目录 `~/.agents/skills/weekly-report-auto` 执行。
 
-### 流程说明
-
-```
-采集数据 → AI 分析 → 写入 report.json → 填入草稿 → 发送通知
-```
+流程：`采集数据 → AI 分析 → 写入 report.json → 填入草稿 → 发送通知`
 
 ### 1. 采集数据
 
@@ -81,35 +51,20 @@ weekly-report-auto/
 npx tsx scripts/skill-auto.ts
 ```
 
-或单独采集：
+或单独采集，详见 [references/data-sources.md](references/data-sources.md)：
 
 ```bash
-npx tsx scripts/collect-lark.ts    # 飞书数据
-npx tsx scripts/collect-git.ts     # Git 数据
+npx tsx scripts/collect-lark.ts        # 飞书数据
+npx tsx scripts/collect-git.ts         # Git 数据
+npx tsx scripts/collect-ai-tools.ts    # AI 工具会话（自动发现已安装工具）
+npx tsx scripts/collect-notes.ts       # 飞书文档笔记（需 search:docs:read 授权）
 ```
-
-采集结果保存到 `collected-data.json` 和 `git-commits.json`。
 
 ### 2. AI 分析（核心步骤）
 
-AI 读取采集到的数据文件，分析生成周报内容，写入 `report.json`：
+AI 读取采集到的数据文件，分析生成周报内容，写入 `report.json`。分析规则与 report.json 结构详见 [references/report-rules.md](references/report-rules.md)。
 
-```json
-{
-  "completed": "内容1\n内容2",
-  "uncompleted": "内容1",
-  "nextPlan": "内容1",
-  "help": "内容1",
-  "reflection": "内容1"
-}
-```
-
-**分析规则：**
-- 每个维度至少 1-3 条
-- 内容精简、有整合，不要原文照搬
-- **不要带序号**（OA 系统会自动编号：填入时标题用普通段落不编号，`1.` 列表项用编号按钮激活 + Enter 续号 + Tab 降级 a/b、Shift+Tab 升级；report.json 保持无序号干净数据，序号前缀由 fill 脚本处理）
-- 优先使用任务数据作为"完成工作"来源
-- 从消息中提取工作相关内容，忽略闲聊
+**核心要点：** 每个维度至少 1-3 条；内容精简有整合；**report.json 不带序号**（OA 自动编号，序号前缀由 fill 脚本处理）；优先使用任务数据；忽略闲聊。
 
 ### 3. 填入草稿
 
@@ -117,7 +72,7 @@ AI 读取采集到的数据文件，分析生成周报内容，写入 `report.js
 npx tsx scripts/playwright-fill.ts
 ```
 
-`playwright-fill.ts` 读取 `report.json` 填入飞书 OA 周报草稿。
+读取 `report.json` 填入飞书 OA 周报草稿，自动处理分级编号（标题不编号、列表项编号、Tab 降级/Shift+Tab 升级）。
 
 ### 4. 发送通知
 
@@ -127,9 +82,15 @@ npx tsx scripts/notify-final.ts
 
 ## Common Mistakes
 
-| 错误 | 原因 | 修复 |
-|------|------|------|
-| Playwright 打不开浏览器 | 未安装 Chromium | 运行 `npx playwright install chromium` |
-| Cookie 过期 / 需重新扫码 | 长时间未使用 | 删除 `.feishu-cookies.json` 重新扫码 |
-| lark-cli 未登录 | 首次使用 | 运行 `lark-cli auth login` |
-| `FEISHU_REPORT_RULE_ID` 报错 | 未配置 | 从周报页面 URL 中 `ruleId=` 后获取数字 |
+详见 [references/common-mistakes.md](references/common-mistakes.md)。
+
+| 错误 | 修复 |
+|------|------|
+| Playwright 打不开浏览器 | `npx playwright install chromium` |
+| Cookie 过期 | 删除 `.feishu-cookies.json` 重新扫码 |
+| lark-cli 未登录 | `lark-cli auth login` |
+| `FEISHU_REPORT_RULE_ID` 报错 | 从周报 URL 中 `ruleId=` 后取数字 |
+
+## Setup
+
+见 [references/setup.md](references/setup.md)：npm install、lark-cli 二次扫码、补充授权。

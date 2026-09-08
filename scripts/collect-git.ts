@@ -24,7 +24,18 @@ console.log(`\n🤖 分析提交内容...`)
 const workItems = GitCollector.analyzeCommits(commits)
 console.log(`✅ 整理为 ${workItems.length} 个工作项\n`)
 
-const reportText = GitCollector.generateReportText(workItems)
+const totalFiles = commits.reduce((n, c) => n + (c.files?.length || 0), 0)
+const docFiles = commits.flatMap(c => c.files || []).filter(f => f.isDoc)
+console.log(`📁 涉及文件: ${totalFiles} 个`)
+const statuses: Record<string, number> = commits.flatMap(c => c.files || []).reduce((acc, f) => { acc[f.status] = (acc[f.status] || 0) + 1; return acc }, {} as Record<string, number>)
+if (Object.keys(statuses).length > 0) {
+  console.log(`   变更状态: ${Object.entries(statuses).map(([s, n]) => `${s}=${n}`).join(', ')}`)
+}
+if (docFiles.length > 0) {
+  console.log(`   文档类: ${[...new Set(docFiles.map(f => f.path))].slice(0, 10).join(', ')}`)
+}
+
+const reportText = GitCollector.generateReportText(workItems, commits)
 
 const data = {
   hasGit: true, hasUser: true, userInfo,
