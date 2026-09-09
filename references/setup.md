@@ -42,6 +42,8 @@ lark-cli auth login --scope "search:docs:read drive:drive:readonly drive:drive o
 | `ai-data.json` | collect-ai-tools | AI 工具会话 |
 | `notes-data.json` | collect-notes | 飞书文档笔记 |
 | `report.json` | generate-report | 生成的周报内容 |
-| `.feishu-cookies.json` | playwright-fill | OA 登录 Cookie |
+| `.feishu-cookies.json` | oa-fill | OA 登录 Cookie |
 
-这些文件均为采集生成的中间产物，不入 git（见 `.gitignore`）。
+填单逻辑在 `scripts/oa-fill.ts`（`skill-auto.ts` 与 `playwright-fill.ts` 共用）；这些数据文件均为采集生成的中间产物，不入 git（见 `.gitignore`）。
+
+个性化配置在 `scripts/config.ts`（内置默认值），需要覆盖时复制 `config.local.example.json` 为 `config.local.json` 使用（详见 SKILL.md 之「个性化配置」）。

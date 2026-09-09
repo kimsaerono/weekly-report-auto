@@ -1,0 +1,30 @@
+// 个性化配置示例：复制为 config.local.json（gitignored）后按需覆盖。
+// 只写想覆盖的键；数组整体替换，对象逐字段合并；路径支持 ~ 前缀。
+{
+  "feishu": {
+    "reportRuleId": "你的周报表 ruleId",
+    "loginDomains": ["im", "calendar", "task", "contact"]
+  },
+  "oa": {
+    "fields": [
+      { "key": "completed", "label": "本周完成工作" },
+      { "key": "uncompleted", "label": "本周未完成工作及原因" },
+      { "key": "nextPlan", "label": "下周工作计划" },
+      { "key": "help", "label": "需要协调与帮助" },
+      { "key": "reflection", "label": "学习和反思" }
+    ]
+  },
+  "project": {
+    "skipDirs": ["Users", "home", "workspace", "GitHub", "folders"]
+  },
+  "git": {
+    "searchOverride": [],
+    "authorOverride": ""
+  },
+  "aiTools": {
+    "tools": [
+      { "name": "opencode", "enabled": true, "adapter": "opencode", "paths": ["~/.local/share/opencode/opencode.db"] },
+      { "name": "claude-code", "enabled": true, "adapter": "claude-code", "paths": ["~/.claude"] }
+    ]
+  }
+}

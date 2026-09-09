@@ -30,14 +30,22 @@ description: "Use when the user says they want to write/auto-generate/fill a wee
 
 ```
 weekly-report-auto/
-├── scripts/           # 全部脚本（skill-auto 主入口、采集器、填入、通知）
+├── scripts/           # 全部脚本（skill-auto 主入口、config 配置中心、采集器、生成、oa-fill 填单共享模块、通知）
 ├── references/        # 参考文档（本 skill 的分层说明）
 ├── REPORT_TEMPLATE.md # 周报内容模板（分类与写作风格）
+├── config.local.example.json # 个性化配置示例（复制为 config.local.json）
 ├── SKILL.md           # 入口索引（本文件）
 ├── package.json
 ├── .env / .env.example
 └── .gitignore
 ```
+
+### 个性化配置（scripts/config.ts）
+
+因人/因环境而异的配置统一集中在 `scripts/config.ts` 的 `DEFAULT_CONFIG`：
+OA ruleId、表单字段标签与顺序、lark-cli 授权域、项目名直出忽略目录、Git 仓库扫描目录/作者、AI 工具清单与路径、生成规则（噪音/动词/消息过滤）。
+
+**扩展方式：** 在 skill 根目录新建 `config.local.json`（gitignored，参考 `config.local.example.json`）只写想覆盖的键即可，运行时深度合并；数组整体替换、对象逐字段合并、路径支持 `~`。什么都不建则用内置默认值（即现行为）。
 
 ## Execution
 
@@ -64,7 +72,7 @@ npx tsx scripts/collect-notes.ts       # 飞书文档笔记（需 search:docs:re
 
 AI 读取采集到的数据文件，分析生成周报内容，写入 `report.json`。分析规则与 report.json 结构详见 [references/report-rules.md](references/report-rules.md)。
 
-**核心要点：** 每个维度至少 1-3 条；内容精简有整合；**report.json 不带序号**（OA 自动编号，序号前缀由 fill 脚本处理）；优先使用任务数据；忽略闲聊。
+**核心要点：** 每个维度至少 1-3 条；内容精简有整合；**report.json 不带序号**（OA 自动编号，序号前缀由 fill 脚本处理）；优先使用任务数据；忽略闲聊；**归类数据驱动**——项目名（仓库名）直出一级标签，git type（feat/fix…）映射动词前缀，分类取自模板，无业务写死配置。
 
 ### 3. 填入草稿
 
@@ -72,7 +80,7 @@ AI 读取采集到的数据文件，分析生成周报内容，写入 `report.js
 npx tsx scripts/playwright-fill.ts
 ```
 
-读取 `report.json` 填入飞书 OA 周报草稿，自动处理分级编号（标题不编号、列表项编号、Tab 降级/Shift+Tab 升级）。
+读取 `report.json` 填入飞书 OA 周报草稿，自动处理分级编号（标题不编号、列表项编号、Tab 降级/Shift+Tab 升级）。填单逻辑统一在 `scripts/oa-fill.ts`，`skill-auto.ts` 第 9 步与 `playwright-fill.ts` 共用同一份实现。
 
 ### 4. 发送通知
 

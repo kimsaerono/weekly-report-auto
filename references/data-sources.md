@@ -32,6 +32,19 @@
 - `--no-merges` 排除合并提交；噪音提交（`merge`/`revert`/`bump version`/`wip`/`tmp`）在分析阶段过滤。
 - 按 `git user.name` 过滤作者（不按邮箱），同名不同邮箱也会计入。
 
+### 项目名直出
+
+- 周报一级标签 = 仓库名 / 项目路径最后一段（自动忽略 `config.project.skipDirs` + 本机用户名）。
+- AI 会话的 `project` 字段同样按此规则清洗（`collect-ai-tools.ts` 的 `cleanProjectPath`）。
+- **新增仓库/项目不需要任何配置**，归类完全数据驱动。
+
+### 个性化覆盖（scripts/config.ts）
+
+- `git.searchOverride`：指定要扫描的目录（默认自动：homedir + 卷 + cwd）。
+- `git.authorOverride`：指定作者名（默认读 `git config user.name`）。
+- `git.pruneDirs`：扫描时剪枝的目录名。
+- 覆盖方式：`config.local.json`（见 SKILL.md 之「个性化配置」）。
+
 ## AI 工具会话采集（自动发现）
 
 采集器检测本地目录，**已安装的工具才采集，其余自动跳过**。

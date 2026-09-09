@@ -1,4 +1,6 @@
 .env
+.config.local.json
+config.local.json
 .feishu-cookies.json
 .feishu-user-token.json
 node_modules/

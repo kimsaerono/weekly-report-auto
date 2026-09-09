@@ -1,47 +1,46 @@
-import { chromium } from 'playwright'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { execSync } from 'child_process'
-import { setTimeout } from 'timers/promises'
+// npm run fill 独立入口：解析内容（report.json → template.md → 环境变量），复用 scripts/oa-fill.ts 共享填单逻辑
+import { readFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
 import { config } from 'dotenv'
+import { fillReportToOA } from './oa-fill.ts'
 
 config()
 
-const RULE_ID = process.env.FEISHU_REPORT_RULE_ID
-if (!RULE_ID) { console.error('请配置 FEISHU_REPORT_RULE_ID'); process.exit(1) }
-const REPORT_URL = `https://oa.feishu.cn/report/record/detail?ruleId=${RULE_ID}&routeFrom=/record/list`
-const COOKIE_PATH = process.env.COOKIE_PATH || fileURLToPath(new URL('../.feishu-cookies.json', import.meta.url))
 const TEMPLATE_PATH = fileURLToPath(new URL('../template.md', import.meta.url))
+const REPORT_JSON_PATH = fileURLToPath(new URL('../report.json', import.meta.url))
 
 interface ReportContent {
-  completed: string
-  uncompleted: string
-  nextPlan: string
-  help: string
-  reflection: string
+  completed?: any
+  uncompleted?: any
+  nextPlan?: any
+  help?: any
+  reflection?: any
 }
 
-// 解析 report.json（由 analyze.ts 生成）
+// 解析 report.json（由 generate-report.ts 生成，结构化数组；兼容旧字符串）
 function parseReportJson(reportPath: string): ReportContent | null {
   if (!existsSync(reportPath)) return null
   try {
     const data = JSON.parse(readFileSync(reportPath, 'utf-8'))
+    const norm = (v: any): any => {
+      if (Array.isArray(v)) return v.map((l: any) => (typeof l === 'string' ? { level: 1, text: l } : l))
+      return v || ''
+    }
     return {
-      completed: data.completed || '无',
-      uncompleted: data.uncompleted || '无',
-      nextPlan: data.nextPlan || '无',
-      help: data.help || '无',
-      reflection: data.reflection || '无',
+      completed: norm(data.completed),
+      uncompleted: norm(data.uncompleted),
+      nextPlan: norm(data.nextPlan),
+      help: norm(data.help),
+      reflection: norm(data.reflection),
     }
   } catch {
     return null
   }
 }
 
-// 解析 template.md 文件
-function parseTemplate(templatePath: string): ReportContent {
-  // 优先：report.json（由 analyze.ts 生成）
-  const reportJson = parseReportJson(fileURLToPath(new URL('../report.json', import.meta.url)))
+export function parseTemplate(templatePath: string): ReportContent {
+  // 优先：report.json（由 generate-report.ts 生成）
+  const reportJson = parseReportJson(REPORT_JSON_PATH)
   if (reportJson) {
     console.log('使用 report.json 作为周报内容')
     return reportJson
@@ -59,7 +58,7 @@ function parseTemplate(templatePath: string): ReportContent {
   }
 
   const content = readFileSync(templatePath, 'utf-8')
-  
+
   // 定义标题到字段的映射（注意：长关键词要放在前面，避免"未完成"误匹配"完成"）
   const titleMap: Record<string, keyof ReportContent> = {
     '未完成': 'uncompleted',
@@ -68,7 +67,7 @@ function parseTemplate(templatePath: string): ReportContent {
     '协调': 'help',
     '反思': 'reflection',
   }
-  
+
   const result: ReportContent = {
     completed: '无',
     uncompleted: '无',
@@ -76,14 +75,14 @@ function parseTemplate(templatePath: string): ReportContent {
     help: '无',
     reflection: '无',
   }
-  
+
   // 按 ## 分割内容
   const sections = content.split(/^## /m).slice(1)
-  
+
   for (const section of sections) {
     const lines = section.split('\n')
     const title = lines[0].trim()
-    
+
     // 找到匹配的字段
     let fieldKey: keyof ReportContent | null = null
     for (const [keyword, key] of Object.entries(titleMap)) {
@@ -92,7 +91,7 @@ function parseTemplate(templatePath: string): ReportContent {
         break
       }
     }
-    
+
     if (fieldKey) {
       // 解析内容：跳过注释行和空行，去掉 - 前缀
       const contentLines = lines.slice(1)
@@ -100,170 +99,29 @@ function parseTemplate(templatePath: string): ReportContent {
         .filter(line => line.trim())
         .map(line => line.replace(/^-\s*/, '').trim())
         .filter(line => line && line !== '-')
-      
+
       if (contentLines.length > 0) {
         result[fieldKey] = contentLines.join('\n')
       }
     }
   }
-  
+
   return result
 }
 
-async function fillReport(content: ReportContent) {
-  // 自动安装 Chromium（若未安装）
-  try { execSync('npx playwright install chromium 2>/dev/null', { stdio: 'pipe' }) } catch {}
-
-  const browser = await chromium.launch({ headless: false })
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
-  const page = await context.newPage()
-
-  // 监听保存相关的网络请求
-  const savedRequests: Array<{ url: string; method: string; body: string }> = []
-  page.on('request', (request: any) => {
-    const url = request.url()
-    if (url.includes('DraftUserRuleWriteView')) {
-      const body = request.postData() ? String(request.postData()) : 'null'
-      savedRequests.push({ url: url.slice(0, 120), method: request.method(), body })
-    }
-  })
-
-  let loggedIn = false
-
-  if (existsSync(COOKIE_PATH)) {
-    const cookies = JSON.parse(readFileSync(COOKIE_PATH, 'utf-8'))
-    await context.addCookies(cookies)
-    await page.goto(REPORT_URL, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
-    await setTimeout(5000)
-    if (page.url().includes('/report/')) {
-      console.log('Cookie 有效')
-      loggedIn = true
-    }
-  }
-
-  if (!loggedIn) {
-    console.log('需要扫码登录飞书')
-    await page.goto(REPORT_URL, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-    await setTimeout(3000)
-    if (page.url().includes('accounts') || page.url().includes('login')) {
-      console.log('=== 请使用飞书手机端扫码登录 ===')
-      await page.waitForURL('**/report/**', { timeout: 180000 }).catch(() => {})
-      console.log('登录成功')
-    }
-    const cookies = await context.cookies()
-    writeFileSync(COOKIE_PATH, JSON.stringify(cookies, null, 2))
-    await setTimeout(5000)
-  }
-
-  if (!page.url().includes('/report/')) {
-    await page.goto(REPORT_URL, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
-    await setTimeout(5000)
-  }
-
-  if (!page.url().includes('/report/')) {
-    console.log('无法进入报告页')
-    await page.screenshot({ path: '/tmp/report-error.png', fullPage: true })
-    await browser.close()
-    return
-  }
-
-  await setTimeout(2000)
-
-  const fields: Array<{ label: string; value: string }> = [
-    { label: '本周完成工作', value: content.completed },
-    { label: '本周未完成工作及原因', value: content.uncompleted },
-    { label: '下周工作计划', value: content.nextPlan },
-    { label: '需要协调与帮助', value: content.help },
-    { label: '学习和反思', value: content.reflection },
-  ]
-
-  for (const field of fields) {
-    // 跳过空内容（但"无"会被填入）
-    if (!field.value) continue
-
-    // 根据标签文本定位输入框
-    const labelEl = page.locator(`text="${field.label}"`).first()
-    if (!(await labelEl.count())) {
-      console.log(`⚠ 未找到标签: ${field.label}，尝试模糊匹配`)
-    }
-
-    // 优先：在标签附近查找 contenteditable
-    const editable = labelEl.locator('xpath=ancestor::*[.//contenteditable]//div[@contenteditable="true"] | following-sibling::*//div[@contenteditable="true"]').first()
-    // 兜底：按索引定位
-    const editableAlt = page.locator(`[contenteditable="true"]`).nth(fields.indexOf(field))
-
-    let el = editable
-    if (!(await el.count())) {
-      console.log(`标签 "${field.label}" 附近未找到 contenteditable，使用索引定位`)
-      el = editableAlt
-    }
-
-    if (!(await el.count())) {
-      console.log(`⚠ 跳过: ${field.label}，找不到输入框`)
-      continue
-    }
-
-    await el.click()
-    await setTimeout(500)
-
-    // 清空内容
-    await page.keyboard.press('Meta+a')
-    await setTimeout(200)
-    await page.keyboard.press('Backspace')
-    await setTimeout(200)
-
-    // 保留手动序号，仅清理会触发飞书联系人选择器的 @ 符号
-    // （出现 @ 后飞书会进入 @人 选择态，选择完成后光标从 "a" 接续，导致内容错乱）
-    // 层级规则：以空格缩进开头的行是二级/三级条目，用软换行（Shift+Enter）输入，
-    //   使其折叠进上一级编号块内，OA 不会重新编号；非缩进行用硬换行（Enter）独立编号。
-    const lines = field.value
-      .split('\n')
-      .filter(Boolean)
-      .map(line => line.replace(/@/g, ''))
-    for (let j = 0; j < lines.length; j++) {
-      const isSub = /^\s+(?=[a-z\d])/.test(lines[j])
-      await page.keyboard.type(lines[j], { delay: 3 })
-      if (j < lines.length - 1) {
-        if (isSub) {
-          // 软换行，缩进 + 字母序号折叠进上一级编号块，OA 不重新编号
-          await page.keyboard.press('Shift+Enter')
-        } else {
-          await page.keyboard.press('Enter')
-        }
-        await setTimeout(200)
-      }
-    }
-
-    console.log(`已输入: ${field.label}`)
-  }
-
-  // 等待自动保存触发
-  console.log('等待自动保存...')
-  await setTimeout(8000)
-
-  console.log(`保存请求数: ${savedRequests.length}`)
-
-  if (savedRequests.some(r => r.url.includes('Draft'))) {
-    console.log('✅ Draft 保存请求已发出')
-  }
-
-  await page.screenshot({ path: '/tmp/weekly-report-result.png', fullPage: true })
-  console.log('截图已保存')
-
-  await setTimeout(5000)
-  await browser.close()
-}
-
-// 优先读取 template.md，否则使用环境变量
 const content = parseTemplate(TEMPLATE_PATH)
+const preview = (v: any) => {
+  if (Array.isArray(v)) return (v.map((l: any) => l?.text || '').join('；') || '无').substring(0, 50)
+  return String(v || '无').substring(0, 50)
+}
 console.log('周报内容:')
-console.log('  完成:', content.completed.substring(0, 50) + '...')
-console.log('  未完成:', content.uncompleted.substring(0, 50) + '...')
-console.log('  计划:', content.nextPlan.substring(0, 50) + '...')
-console.log('  协调:', content.help)
-console.log('  反思:', content.reflection.substring(0, 50) + '...')
+console.log('  完成:', preview(content.completed))
+console.log('  未完成:', preview(content.uncompleted))
+console.log('  计划:', preview(content.nextPlan))
+console.log('  协调:', preview(content.help))
+console.log('  反思:', preview(content.reflection))
 
-fillReport(content).catch(err => {
+fillReportToOA({ content }).catch(err => {
   console.error('失败:', err.message)
   process.exit(1)
 })

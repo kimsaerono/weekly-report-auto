@@ -6,6 +6,7 @@ import { homedir } from 'os'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { getWeekRange } from './time-utils.ts'
+import { CONFIG, resolvePaths } from './config.ts'
 
 interface AiSession {
   tool: string
@@ -45,7 +46,8 @@ function detectPath(paths: string[]): string | null {
 
 function cleanProjectPath(dir: string): string {
   const parts = (dir || '').split(/[\/\\]/).filter(Boolean)
-  const skip = new Set(['hy', 'workspace', 'GitHub', '基建', '汇元', 'other', 'folders', 'Users', 'home', 'Users'])
+  const username = (home.split('/').pop() || '').toLowerCase()
+  const skip = new Set([...CONFIG.project.skipDirs, username])
   for (let i = parts.length - 1; i >= 0; i--) {
     if (!skip.has(parts[i])) return parts[i]
   }
@@ -195,76 +197,48 @@ function collectAllTools(): AiToolsResult {
 
   const toolsResults: AiToolResult[] = []
 
-  // 1. opencode
-  const ocPath = detectPath([join(home, '.local/share/opencode/opencode.db')])
-  if (ocPath) {
-    const sessions = collectOpenCode(ocPath, startMs, endMs)
-    console.log(`   ✅ [opencode] ${sessions.length} 个会话`)
-    toolsResults.push({ tool: 'opencode', detected: true, sessions })
-  } else {
-    toolsResults.push({ tool: 'opencode', detected: false, sessions: [] })
-    console.log('   ⏭ [opencode] 未检测到')
-  }
+  for (const tool of CONFIG.aiTools.tools) {
+    if (tool.enabled === false) {
+      toolsResults.push({ tool: tool.name, detected: false, sessions: [] })
+      console.log(`   ⏭ [${tool.name}] 已禁用`)
+      continue
+    }
 
-  // 2. Claude Code
-  const claudeDir = detectPath([join(home, '.claude')])
-  if (claudeDir) {
-    const sessions = collectClaudeCode(claudeDir, startMs, endMs)
-    console.log(`   ✅ [claude-code] ${sessions.length} 个会话`)
-    toolsResults.push({ tool: 'claude-code', detected: true, sessions })
-  } else {
-    toolsResults.push({ tool: 'claude-code', detected: false, sessions: [] })
-    console.log('   ⏭ [claude-code] 未检测到')
-  }
+    const detectedPath = detectPath(resolvePaths(tool.paths))
+    if (!detectedPath) {
+      toolsResults.push({ tool: tool.name, detected: false, sessions: [] })
+      console.log(`   ⏭ [${tool.name}] 未检测到`)
+      continue
+    }
 
-  // 3. Cursor
-  const cursorRoot = detectPath([join(home, 'Library/Application Support/Cursor')])
-  if (cursorRoot) {
-    const sessions = collectVSCodeFamily('cursor', cursorRoot, startMs, endMs)
-    console.log(`   ✅ [cursor] ${sessions.length} 个会话`)
-    toolsResults.push({ tool: 'cursor', detected: true, sessions })
-  } else {
-    toolsResults.push({ tool: 'cursor', detected: false, sessions: [] })
-    console.log('   ⏭ [cursor] 未检测到')
-  }
-
-  // 4. Windsurf
-  const windsurfRoot = detectPath([join(home, 'Library/Application Support/Windsurf')])
-  if (windsurfRoot) {
-    const sessions = collectVSCodeFamily('windsurf', windsurfRoot, startMs, endMs)
-    console.log(`   ✅ [windsurf] ${sessions.length} 个会话`)
-    toolsResults.push({ tool: 'windsurf', detected: true, sessions })
-  } else {
-    toolsResults.push({ tool: 'windsurf', detected: false, sessions: [] })
-    console.log('   ⏭ [windsurf] 未检测到')
-  }
-
-  // 5. Trae
-  const traeRoot = detectPath([join(home, 'Library/Application Support/Trae')])
-  if (traeRoot) {
-    const sessions = collectVSCodeFamily('trae', traeRoot, startMs, endMs)
-    console.log(`   ✅ [trae] ${sessions.length} 个会话`)
-    toolsResults.push({ tool: 'trae', detected: true, sessions })
-  } else {
-    toolsResults.push({ tool: 'trae', detected: false, sessions: [] })
-    console.log('   ⏭ [trae] 未检测到')
-  }
-
-  // 6. Codeium (plugin/windsurf)
-  const codeiumDir = detectPath([join(home, '.codeium')])
-  if (codeiumDir) {
-    // Codeium ships with Windsurf; standalone sessions not reliably parseable — mark detected if dir exists.
-    console.log('   ⏭ [codeium] 检测到目录但无独立可解析会话（随 Windsurf 存储）')
-    toolsResults.push({ tool: 'codeium', detected: true, sessions: [] })
-  } else {
-    toolsResults.push({ tool: 'codeium', detected: false, sessions: [] })
-    console.log('   ⏭ [codeium] 未检测到')
+    let sessions: AiSession[] = []
+    switch (tool.adapter) {
+      case 'opencode':
+        sessions = collectOpenCode(detectedPath, startMs, endMs)
+        break
+      case 'claude-code':
+        sessions = collectClaudeCode(detectedPath, startMs, endMs)
+        break
+      case 'vscode-family':
+        sessions = collectVSCodeFamily(tool.name, detectedPath, startMs, endMs)
+        break
+      case 'codeium':
+        console.log(`   ⏭ [${tool.name}] 检测到目录但无独立可解析会话（随 Windsurf 存储）`)
+        toolsResults.push({ tool: tool.name, detected: true, sessions: [] })
+        continue
+    }
+    console.log(`   ✅ [${tool.name}] ${sessions.length} 个会话`)
+    toolsResults.push({ tool: tool.name, detected: true, sessions })
   }
 
   const allSessions = toolsResults.flatMap(t => t.sessions)
   const topSessions = allSessions.slice(0, 50)
+  const skipKeywords = CONFIG.aiTools.titleSkipKeywords.map(k => k.toLowerCase())
   const workSummary = topSessions
-    .filter(s => s.title && !s.title.toLowerCase().includes('subagent') && !s.title.toLowerCase().includes('explore') && !s.title.toLowerCase().includes('analyze'))
+    .filter(s => {
+      const t = s.title.toLowerCase()
+      return s.title && !skipKeywords.some(k => t.includes(k))
+    })
     .map(s => `[${s.project || s.tool}] ${s.title}`)
 
   const result: AiToolsResult = {

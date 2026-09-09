@@ -2,6 +2,7 @@ import { execSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join, relative } from 'path'
+import { CONFIG } from './config.ts'
 
 function formatLocal(date: Date): string {
   const y = date.getFullYear()
@@ -28,20 +29,22 @@ export class GitCollector {
   static discoverRepos(searchDirs: string[]): string[] {
     const repoSet = new Set<string>()
     const isWin = process.platform === 'win32'
+    const pruneNames = CONFIG.git.pruneDirs
 
     for (const dir of searchDirs) {
       if (!existsSync(dir)) continue
       try {
         if (isWin) {
-          this.walkForRepos(dir, repoSet, 0, 4)
+          this.walkForRepos(dir, repoSet, 0, 4, pruneNames)
         } else {
+          const pruneExpr = pruneNames.map(n => `-o -name "${n}"`).join(' ').replace(/^-o /, '')
           const output = execSync(
-            `find "${dir}" -maxdepth 5 -type d \\( -path "*/node_modules" -o -path "*/.hermes" -o -path "*/.agents" -o -path "*/.opencode" -o -path "*/Library" -o -path "*/.cache" -o -path "*/.Trash" -o -path "*/Applications" -o -path "*/.vscode" -o -path "*/.pyvenv" \\) -prune -o -name ".git" -print 2>/dev/null`,
+            `find "${dir}" -maxdepth 5 -type d \\( ${pruneExpr} \\) -prune -o -name ".git" -print 2>/dev/null`,
             { encoding: 'utf-8', timeout: 30000 }
           )
           for (const line of output.trim().split('\n').filter(Boolean)) {
             const repoPath = line.replace(/\/\.git$/, '').replace(/\\\.git$/, '')
-            if (!repoPath.includes('/node_modules/') && !repoPath.includes('/.hermes/') && !repoPath.includes('/.agents/') && !repoPath.includes('/.opencode/') && !repoPath.includes('/Library/')) {
+            if (pruneNames.every(d => !repoPath.includes(`/${d}/`) && !repoPath.endsWith(`/${d}`))) {
               repoSet.add(repoPath)
             }
           }
@@ -82,18 +85,18 @@ export class GitCollector {
     return volumes
   }
 
-  private static walkForRepos(dir: string, repos: Set<string>, depth: number, maxDepth: number): void {
+  private static walkForRepos(dir: string, repos: Set<string>, depth: number, maxDepth: number, pruneNames: string[] = CONFIG.git.pruneDirs): void {
     if (depth > maxDepth) return
     try {
       const entries = readdirSync(dir, { withFileTypes: true })
       for (const entry of entries) {
-        if (entry.name === 'node_modules' || entry.name === '.hermes' || entry.name === '.agents' || entry.name === '.opencode' || entry.name === 'Library' || entry.name === '.cache' || entry.name === '.Trash' || entry.name === 'Applications' || entry.name === '.vscode' || entry.name === 'Windows' || entry.name === 'Program Files' || entry.name === 'Program Files (x86)' || entry.name === 'ProgramData' || entry.name === '$Recycle.Bin' || entry.name === 'System Volume Information' || entry.name === 'PerfLogs' || entry.name === 'AppData') continue
+        if (pruneNames.includes(entry.name)) continue
         if (entry.name === '.git' && entry.isDirectory()) {
           repos.add(dir)
           continue
         }
         if (entry.isDirectory() && !entry.name.startsWith('.')) {
-          this.walkForRepos(join(dir, entry.name), repos, depth + 1, maxDepth)
+          this.walkForRepos(join(dir, entry.name), repos, depth + 1, maxDepth, pruneNames)
         }
       }
     } catch { return }
@@ -214,8 +217,10 @@ export class GitCollector {
     const until = formatLocal(sunday)
 
     const isWin = process.platform === 'win32'
-    const defaultDirs = isWin ? this.enumerateWindowsDrives() : [...new Set([homedir(), ...this.enumerateVolumes(), process.cwd()])]
-    const repos = this.discoverRepos(searchDirs || defaultDirs)
+    const searchRoots = CONFIG.git.searchOverride.length > 0
+      ? CONFIG.git.searchOverride
+      : (isWin ? this.enumerateWindowsDrives() : [...new Set([homedir(), ...this.enumerateVolumes(), process.cwd()])])
+    const repos = this.discoverRepos(searchRoots)
     console.log(`🔍 找到 ${repos.length} 个 Git 仓库`)
     console.log(`👤 作者: ${userInfo.name} <${userInfo.email}>`)
     console.log(`📅 时间范围: ${since} ~ ${until}\n`)
@@ -223,8 +228,10 @@ export class GitCollector {
     const allCommits: GitCommit[] = []
     let validRepoCount = 0
 
+    const author = CONFIG.git.authorOverride || userInfo.name
+
     for (const repo of repos) {
-      const commits = this.collectFromRepo(repo, userInfo.name, since, until)
+      const commits = this.collectFromRepo(repo, author, since, until)
       if (commits.length > 0) {
         console.log(`  ${relative(homedir(), repo)} → ${commits.length} 条提交`)
         allCommits.push(...commits)

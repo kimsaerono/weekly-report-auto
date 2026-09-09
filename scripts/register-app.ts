@@ -3,6 +3,7 @@ import * as lark from '@larksuiteoapi/node-sdk'
 import { writeFileSync, readFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'child_process'
+import { CONFIG } from './config.ts'
 
 interface AppConfig {
   appId: string
@@ -178,7 +179,7 @@ export async function loginLarkCli(): Promise<void> {
 
   try {
     // 先获取 device code
-    const loginResult = execSync('lark-cli auth login --domain im,calendar,task,contact --no-wait --json', { encoding: 'utf-8' })
+    const loginResult = execSync(`lark-cli auth login --domain ${CONFIG.feishu.loginDomains.join(',')} --no-wait --json`, { encoding: 'utf-8' })
     const loginInfo = JSON.parse(loginResult)
     
     if (!loginInfo.device_code || !loginInfo.verification_url) {

@@ -2,11 +2,28 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'child_process'
+import { homedir } from 'os'
 import { config } from 'dotenv'
+import { CONFIG } from './config.ts'
 
 config()
 
 const TEMPLATE_PATH = fileURLToPath(new URL('../REPORT_TEMPLATE.md', import.meta.url))
+
+// ===== 结构化 Schema（编号由填单端生成，report.json 保持无序号干净数据）=====
+interface ReportLine {
+  title?: boolean // true = 分类标题（一、业务 & 开发），普通段落不编号
+  level?: number // 1 = 一级 / 2 = 二级 / 3 = 三级，由填单端 Tab/Shift+Tab 精确落层级
+  text: string
+}
+
+interface ReportContent {
+  completed: ReportLine[]
+  uncompleted: ReportLine[]
+  nextPlan: ReportLine[]
+  help: ReportLine[]
+  reflection: ReportLine[]
+}
 
 interface ReportData {
   weekRange: { start: string; end: string }
@@ -18,16 +35,7 @@ interface ReportData {
   notes?: any
 }
 
-interface ReportContent {
-  completed: string
-  uncompleted: string
-  nextPlan: string
-  help: string
-  reflection: string
-}
-
 function loadJson(filePath: string): any {
-  // 解析相对于项目根目录的路径
   const rootDir = fileURLToPath(new URL('..', import.meta.url))
   const fullPath = filePath.startsWith('/') ? filePath : `${rootDir}/${filePath}`
   if (!existsSync(fullPath)) return null
@@ -39,153 +47,37 @@ function loadTemplate(): string {
   return readFileSync(TEMPLATE_PATH, 'utf-8')
 }
 
-// 从模板提取分类结构（一、业务&开发 / 二、团队效能与基础建设）
 function parseTemplateCategories(template: string): string[] {
   if (!template) return []
   const cats: string[] = []
-  for (const line of template.split('\n')) {
-    const m = line.match(/^([一二三四五六七八九十]+)、(.*)$/)
-    if (m) cats.push(m[1] + '、' + m[2].trim())
+  const seen = new Set<string>()
+  // 只解析「分类结构」章节（## 格式规范 → ### 写作风格 之间的 - 列表项）
+  const section = template.split('\n')
+  let inStruct = false
+  for (const line of section) {
+    if (/^###\s*分类结构/.test(line)) inStruct = true
+    else if (inStruct && /^#{2,3}\s/.test(line) && !/分类结构/.test(line)) break
+    if (!inStruct) continue
+    const m = line.match(/^[-*]\s*([一二三四五六七八九十]+)、(.*)$/)
+    if (m) {
+      const norm = normalizeCatTitle(`${m[1]}、${m[2].trim()}`)
+      if (!seen.has(norm)) {
+        seen.add(norm)
+        cats.push(norm)
+      }
+    }
   }
   return cats
 }
 
-// 从模板提取分类 -> 关键字（用于项目归类），简化为按分类标题
-function parseTemplateCategoryMap(template: string): Map<string, string> {
-  const map = new Map<string, string>()
-  if (!template) return map
-  for (const line of template.split('\n')) {
-    const m = line.match(/^([一二三四五六七八九十]+)、(.*)$/)
-    if (m) map.set(m[1], m[2].trim())
-  }
-  return map
+function normalizeCatTitle(title: string): string {
+  return title.replace(/&/g, ' & ').replace(/\s+/g, ' ').replace(/&\s+&/, '&').trim()
 }
 
-function analyzeUserMessages(messages: any[], openId: string): Map<string, string[]> {
-  const chatMap = new Map<string, string[]>()
-  const userMessages = messages.filter(m => m.sender?.id === openId && m.content && m.content.length > 5)
+// ===== 通用处理（无公司/项目声明，全部从数据本身推断）=====
+// 规则来源：scripts/config.ts（可本地覆盖），仅保留普适噪音（合并/回退/空提交等），不含业务关键词
 
-  for (const msg of userMessages) {
-    const chat = msg.chat_name || '其他'
-    const content = msg.content.trim()
-    if (!chatMap.has(chat)) chatMap.set(chat, [])
-    chatMap.get(chat)!.push(content)
-  }
-
-  return chatMap
-}
-
-function analyzeTasks(tasks: any): { completed: string[]; inProgress: string[] } {
-  const completed: string[] = []
-  const inProgress: string[] = []
-
-  if (!tasks) return { completed, inProgress }
-
-  for (const task of (tasks.completed || [])) {
-    completed.push(task.summary || task.name || '未命名任务')
-  }
-
-  for (const task of (tasks.incomplete || [])) {
-    inProgress.push(task.summary || task.name || '未命名任务')
-  }
-
-  return { completed, inProgress }
-}
-
-// ===== 核心：业务域映射与聚合逻辑 =====
-
-// 仓库/项目名 -> 业务域映射（一级分组）
-const REPO_TO_DOMAIN: Record<string, string> = {
-  'mso-pc-admin': '权限系统',
-  'agg-admin-web': '权限系统',
-  'merchant-pc-admin': '权限系统',
-  'login-dev-pc-component': '登录组件',
-  'huiwork-web': 'huiwork-web',
-  'cross-pay-ui': 'crosspay',
-  'crosspay': 'crosspay',
-  'hy-templates': '基础建设',
-  'hyfe-node-dependencies': '基础建设',
-  'svg-factory': '基础建设',
-  'bloub': '团队效能',
-  'hy-space': '团队效能',
-  'hy-sdk': '基础建设',
-}
-
-// 大分类映射（二级分组标题）
-const DOMAIN_TO_CATEGORY: Record<string, string> = {
-  '权限系统': '业务 & 开发',
-  '登录组件': '业务 & 开发',
-  'huiwork-web': '业务 & 开发',
-  'mso': '业务 & 开发',
-  'crosspay': '业务 & 开发',
-  'hy-templates': '团队效能与基础建设',
-  'hyfe-node-dependencies': '团队效能与基础建设',
-  'svg-factory': '团队效能与基础建设',
-  '团队效能': '团队效能与基础建设',
-  '基础建设': '团队效能与基础建设',
-}
-
-// 提交/会话标题 -> 领域的二级分组（用于同域内的条目归类）
-// 仅当该仓库有多个子业务时才用到（如 mso-pc-admin 既有权限又有进件）
-const SUB_DOMAIN_RULES: Array<{regex: RegExp, domain: string, sub: string}> = [
-  // mso-pc-admin: 既有权限又有进件/预发布
-  {regex: /权限|permission|v4menuid|merchantid|loadPagePerm|双入口|来源判断/, domain: 'mso-pc-admin', sub: '权限系统'},
-  {regex: /进件|预发布|main 分支/, domain: 'mso-pc-admin', sub: 'mso'},
-  // login-dev-pc-component
-  {regex: /登录|login|网关|proxy.*login|浮动标签|清空缓存|ElMessage|CSS.*内联/, domain: 'login-dev-pc-component', sub: '登录组件'},
-  // huiwork-web
-  {regex: /Electron|electron.*打包|mac.*win.*linux/, domain: 'huiwork-web', sub: 'huiwork-web'},
-  {regex: /metaclaw|agent.*权限|二开/, domain: 'huiwork-web', sub: 'huiwork-web'},
-  // crosspay
-  {regex: /crosspay|fix 文件|安全修改/, domain: 'cross-pay-ui', sub: 'crosspay'},
-  // bloub
-  {regex: /代码库.*分析|知识图谱|AR 方案/, domain: 'bloub', sub: '团队效能'},
-  // hy-space
-  {regex: /ar\.md|AR 方案/, domain: 'hy-space', sub: '团队效能'},
-  {regex: /统一用户中心|登录方向|前端承接/, domain: 'hy-space', sub: '团队效能'},
-  // hy-templates: 权限模版、skill、登录包升级、网关代理、依赖、gitignore
-  {regex: /模版.*权限|权限注入|skill/, domain: 'hy-templates', sub: 'hy-templates'},
-  {regex: /升级.*login|login-dev-pc|网关.*代理|proxy/, domain: 'hy-templates', sub: 'hy-templates'},
-  {regex: /hy-sdk|依赖.*调整|gitignore/, domain: 'hy-templates', sub: 'hy-templates'},
-  // hyfe-node-dependencies
-  {regex: /hy-sdk|依赖.*调整|gitignore/, domain: 'hyfe-node-dependencies', sub: 'hyfe-node-dependencies'},
-  // svg-factory
-  {regex: /SVG|svg.*下载/, domain: 'svg-factory', sub: 'svg-factory'},
-  // agg-admin-web (权限相关)
-  {regex: /权限|permission|menu.*id|菜单/, domain: 'agg-admin-web', sub: '权限系统'},
-  // merchant-pc-admin: 登录组件相关
-  {regex: /登录|login|网关|proxy.*login|私服包|代理/, domain: 'merchant-pc-admin', sub: '登录组件'},
-  // merchant-pc-admin: 权限相关
-  {regex: /权限|permission|menu.*id|菜单/, domain: 'merchant-pc-admin', sub: '权限系统'},
-]
-
-// 噪音过滤：无需出现在周报的提交/会话
-const NOISE_PATTERNS: RegExp[] = [
-  /^Merge branch/,
-  /^Revert/,
-  /^(chore|docs|style):/i,
-  /^\s*(readme|README|Readme)\b/i,
-  /^\s*report\b/i,
-  /^\s*greeting\b/i,
-  /^\s*Restoring/,
-  /^\s*Loading.*skill/,
-  /^\s*撰写周报/,
-  /^\s*opencode报错/,
-  /报错/,
-  /错误/,
-  /npm.*安装.*报错/,
-  /^\s*$/,
-  /^更新菜单/,
-  /^feat[:：]\s*更新\s*$/,
-  /^feat[:：]\s*更新\s+[a-zA-Z]+$/,
-  /^chore[:：]\s*补充.*gitignore/,
-  /^chore[:：]\s*停止跟踪/,
-  /^feat[:：]\s*readme/i,
-  /fear:/i,
-  /electron.*build/i,
-  /^\s*更新\s*$/,
-  /^\s*readme\s*$/i,
-]
+const NOISE_PATTERNS: RegExp[] = CONFIG.generate.noisePatterns.map(p => new RegExp(p, 'i'))
 
 function isNoise(text: string): boolean {
   return NOISE_PATTERNS.some(r => r.test(text))
@@ -197,273 +89,360 @@ function stripCommitPrefix(msg: string): string {
     .trim()
 }
 
+// 项目名从路径直出：忽略目录结构与本机用户名，其余取最后一段
+const USERNAME = (homedir().split('/').pop() || '').toLowerCase()
+const IGNORED_DIRS = new Set([...CONFIG.project.skipDirs, USERNAME])
+
 function extractProjectName(pathOrRepo: string): string {
   if (!pathOrRepo) return '其他'
   const parts = pathOrRepo.split('/').filter(Boolean)
-  const ignored = new Set(['workspace', 'hy', 'GitHub', '基建', '汇元', 'folders', 'kim', 'Users', 'home'])
   for (let i = parts.length - 1; i >= 0; i--) {
     const p = parts[i]
-    if (p && !ignored.has(p)) return p
+    if (p && !IGNORED_DIRS.has(p)) return p
   }
   return parts[parts.length - 1] || '其他'
 }
 
-// 根据子域规则把条目归到具体的业务子域
-function assignSubDomain(repo: string, text: string): string {
-  for (const rule of SUB_DOMAIN_RULES) {
-    if (rule.domain === repo && rule.regex.test(text)) {
-      return rule.sub
-    }
-  }
-  // 默认用仓库映射的大域
-  return REPO_TO_DOMAIN[repo] || '其他'
+// git 提交类型 → 动词前缀（feat/fix/refactor/docs/... 通用字段，无业务映射）
+const COMMIT_VERB: Record<string, string> = CONFIG.generate.commitVerbs
+
+function gitTypeOf(message: string): string {
+  const m = message.toLowerCase()
+  if (/^fix|修复/.test(m)) return 'fix'
+  if (/^feat|^feature|新增|实现/.test(m)) return 'feat'
+  if (/refactor|重构/.test(m)) return 'refactor'
+  if (/^docs|文档/.test(m)) return 'docs'
+  if (/^test|测试/.test(m)) return 'test'
+  if (/^perf|性能/.test(m)) return 'perf'
+  if (/^chore|维护/.test(m)) return 'chore'
+  if (/^style|样式/.test(m)) return 'style'
+  return ''
 }
 
-// 按仓库分组 Git 提交
-function groupGitByRepo(gitData: any): Map<string, Map<string, string[]>> {
-  const map = new Map<string, Map<string, string[]>>() // repo -> subDomain -> items[]
-  if (!gitData?.commits) return map
+const WORK_VERB_RE = new RegExp(`^(${CONFIG.generate.workVerbs.join('|')})`)
 
-  const docCommitsByRepo = new Map<string, Array<{ message: string; files: string[] }>>() // repo -> commit 级文档聚合
-  const seenDocFiles = new Set<string>() // 跨 commit 去重文档文件
-  for (const c of gitData.commits) {
-    const repo = extractProjectName(c.repo)
-    const docs = (c.files || []).filter((f: any) => f.isDoc && f.path && f.status !== 'D')
-    if (docs.length === 0) continue
+function rewriteCommit(msg: string): string {
+  const type = gitTypeOf(msg)
+  const clean = stripCommitPrefix(msg).replace(/[。.;；\s]+$/g, '')
+  if (WORK_VERB_RE.test(clean)) return clean
+  const verb = COMMIT_VERB[type] || '实现'
+  return `${verb} ${clean}`
+}
 
-    if (!docCommitsByRepo.has(repo)) docCommitsByRepo.set(repo, [])
-    const commitDocs = docCommitsByRepo.get(repo)!
-    const existing = commitDocs.find(x => x.message === c.message)
-    if (existing) continue
-    const cleanMsg = stripCommitPrefix(c.message || '无描述')
-    commitDocs.push({
-      message: cleanMsg || c.message,
-      files: docs.map((f: any) => f.path)
-        .filter((p: string) => {
-          const name = p.split('/').pop() || p
-          if (seenDocFiles.has(name)) return false
-          seenDocFiles.add(name)
-          return true
-        })
-        .map((p: string) => p.split('/').pop() || p),
-    })
+function rewriteSession(title: string): string {
+  const trimmed = title.replace(/[。.;；\s]+$/g, '')
+  if (WORK_VERB_RE.test(trimmed)) return trimmed
+  if (CONFIG.generate.sessionDoneMarkers.some(m => trimmed.includes(m))) return `完成 ${trimmed}`
+  return `${CONFIG.generate.sessionDefaultVerb} ${trimmed}`
+}
+
+function normalizeKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[。，、；：,.;:"'`~!@#$%^&*()\[\]{}\s]+/g, '')
+}
+
+// 归一组内去重 + 包含合并：同组内若一条完整包含另一条（归一化后子串），保留更长一条
+function mergeGroup(items: string[], max = 4): string[] {
+  const cleaned = items
+    .map(i => i.replace(/[。.;；\s]+$/g, '').trim())
+    .filter(Boolean)
+  const seen = new Map<string, string>()
+  for (const it of cleaned) {
+    const k = normalizeKey(it)
+    if (!seen.has(k)) seen.set(k, it)
   }
-
-  for (const c of gitData.commits) {
-    const repo = extractProjectName(c.repo)
-    const rawMsg = c.message || '无描述'
-    if (isNoise(rawMsg)) continue
-    const cleanMsg = stripCommitPrefix(rawMsg)
-    if (isNoise(cleanMsg)) continue
-
-    const subDomain = assignSubDomain(repo, cleanMsg)
-    if (!map.has(repo)) map.set(repo, new Map())
-    const repoMap = map.get(repo)!
-    if (!repoMap.has(subDomain)) repoMap.set(subDomain, [])
-    repoMap.get(subDomain)!.push(cleanMsg)
-  }
-
-  for (const [repo, commits] of docCommitsByRepo) {
-    if (!map.has(repo)) map.set(repo, new Map())
-    const repoMap = map.get(repo)!
-    const subDomain = '文档更新'
-    if (!repoMap.has(subDomain)) repoMap.set(subDomain, [])
-    for (const dc of commits.slice(0, 5)) {
-      repoMap.get(subDomain)!.push(`${dc.message}（${dc.files.join(', ')}）`)
+  const entries = Array.from(seen.entries())
+  const dropped = new Set<string>()
+  for (let i = 0; i < entries.length; i++) {
+    const [ki] = entries[i]
+    if (dropped.has(ki)) continue
+    for (let j = 0; j < entries.length; j++) {
+      if (i === j) continue
+      const [kj] = entries[j]
+      if (kj && ki !== kj && ki.length >= 4 && kj.includes(ki)) {
+        dropped.add(ki)
+        break
+      }
     }
   }
+  return entries.filter(([k]) => !dropped.has(k)).map(([, v]) => v).slice(0, max)
+}
+
+// git 非文档提交：项目 -> 加工后的条目（同项目多条聚合）
+function groupCommitsByProject(gitData: any): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  if (!gitData?.commits) return map
+  for (const c of gitData.commits || []) {
+    const docFiles = (c.files || []).filter((f: any) => f.isDoc && f.path && f.status !== 'D')
+    if (docFiles.length > 0) continue // 文档提交归入「文档更新」分组
+    const project = extractProjectName(c.repo)
+    const raw = c.message || '无描述'
+    if (isNoise(raw)) continue
+    const item = rewriteCommit(raw)
+    if (!map.has(project)) map.set(project, [])
+    map.get(project)!.push(item)
+  }
+  for (const [project, items] of map) map.set(project, mergeGroup(items))
   return map
 }
 
-// 按项目分组 opencode 会话
-function groupOpencodeByProject(opencodeData: any): Map<string, Map<string, string[]>> {
-  const map = new Map<string, Map<string, string[]>>()
+// git 文档提交：按项目产出「完善 {项目} 文档：文件名…」，全局合并
+function collectDocItems(gitData: any): string[] {
+  const byProject = new Map<string, string[]>()
+  const seenFiles = new Set<string>()
+  if (!gitData?.commits) return []
+  for (const c of gitData.commits || []) {
+    const project = extractProjectName(c.repo)
+    const docFiles = (c.files || []).filter((f: any) => f.isDoc && f.path && f.status !== 'D')
+    if (docFiles.length === 0) continue
+    if (!byProject.has(project)) byProject.set(project, [])
+    for (const f of docFiles) {
+      const name = (f.path || '').split('/').pop() || ''
+      if (seenFiles.has(name)) continue
+      seenFiles.add(name)
+      byProject.get(project)!.push(name.replace(/\.md$/i, ''))
+    }
+  }
+  const items: string[] = []
+  for (const [project, names] of byProject) {
+    const n = names.length > 4 ? [...names.slice(0, 4), `等 ${names.length - 4} 个文档`] : names
+    items.push(`完善 ${project} 文档：${n.join('、')}`)
+  }
+  return mergeGroup(items, 6)
+}
+
+// AI 会话：项目 -> 标题加工
+function groupSessionsByProject(opencodeData: any): Map<string, string[]> {
+  const map = new Map<string, string[]>()
   if (!opencodeData?.sessions) return map
-
-  const toSkip = /subagent|Explore|Analyze|Load|greeting|Restoring|报错|New session|撰写周报|周报|knowledgeskill/i
-
+  const toSkip = new RegExp(CONFIG.generate.sessionSkipPattern, 'i')
   for (const s of opencodeData.sessions || []) {
     const title = (s.title || '').trim()
     if (!title || toSkip.test(title) || isNoise(title)) continue
-    const dir = s.directory || ''
-    const repo = extractProjectName(dir)
-    const subDomain = assignSubDomain(repo, title)
-    if (!map.has(repo)) map.set(repo, new Map())
-    const repoMap = map.get(repo)!
-    if (!repoMap.has(subDomain)) repoMap.set(subDomain, [])
-    repoMap.get(subDomain)!.push(title)
+    const project = s.project || extractProjectName(s.directory || '')
+    const item = rewriteSession(title)
+    if (!map.has(project)) map.set(project, [])
+    map.get(project)!.push(item)
   }
+  for (const [project, items] of map) map.set(project, mergeGroup(items))
   return map
 }
 
-// 合并同源数据，去重，输出最终结构
+// ===== 飞书消息：提取本人发出的工作消息（严格过滤，只保留自述工作状态）=====
+
+const MESSAGE_NOISE_RE = new RegExp(`(${CONFIG.generate.messageNoiseWords.join('|')})`)
+// 缺少动词或过短的消息不算
+const MESSAGE_STRONG_VERB_RE = new RegExp(`(${CONFIG.generate.messageStrongVerbs.join('|')})`)
+
+function analyzeUserMessages(messages: any[], openId: string): string[] {
+  const items: string[] = []
+  if (!messages?.length || !openId) return items
+  for (const msg of messages) {
+    const isMine = msg.sender?.id === openId
+    if (!isMine) continue
+    const content = (msg.content || '').trim().replace(/@/g, '')
+    if (content.length < 8 || content.length > 50) continue
+    if (MESSAGE_NOISE_RE.test(content)) continue
+    if (!MESSAGE_STRONG_VERB_RE.test(content)) continue
+    if (/^(好的|收到|ok|嗯|好|赞|👍|OK|了解|明白|谢谢|图|📖)/i.test(content)) continue
+    items.push(content)
+  }
+  return items
+}
+
+// ===== 分类与合并（分类结构来自模板，无写死映射）=====
+
+type GroupMap = Map<string, Map<string, string[]>> // 分类标题 -> 项目 -> 条目
+
+// 通用归类规则：项目/任务/消息 → 第一个分类；文档/笔记 → 第二个分类（若无则并入第一个）
 function mergeSources(
-  gitByRepo: Map<string, Map<string, string[]>>,
-  opencodeByProject: Map<string, Map<string, string[]>>,
+  gitProjects: Map<string, string[]>,
+  sessions: Map<string, string[]>,
   tasksCompleted: string[],
-  notes: string[] = []
-): Map<string, Map<string, string[]>> { // category -> subDomain -> items[]
-  const result = new Map<string, Map<string, string[]>>()
+  workMessages: string[],
+  docItems: string[],
+  template: string,
+): GroupMap {
+  const cats = parseTemplateCategories(template)
+  const mainCat = cats[0] || '__plain__'
+  const docsCat = cats.length >= 2 ? cats[1] : mainCat
 
-  function addItem(category: string, subDomain: string, item: string) {
-    if (!result.has(category)) result.set(category, new Map())
-    const catMap = result.get(category)!
-    if (!catMap.has(subDomain)) catMap.set(subDomain, [])
-    const items = catMap.get(subDomain)!
-    // 简单去重：前 30 字符
-    const key = item.substring(0, 30)
-    if (!items.some(existing => existing.substring(0, 30) === key)) {
-      items.push(item)
+  const result: GroupMap = new Map()
+  const ensure = (cat: string, bucket: string): string[] => {
+    if (!result.has(cat)) result.set(cat, new Map())
+    const catMap = result.get(cat)!
+    if (!catMap.has(bucket)) catMap.set(bucket, [])
+    return catMap.get(bucket)!
+  }
+
+  for (const [project, items] of gitProjects) {
+    const bucket = ensure(mainCat, project)
+    bucket.push(...items)
+  }
+  for (const [project, items] of sessions) {
+    const bucket = ensure(mainCat, project)
+    bucket.push(...items)
+  }
+  const taskItems: string[] = []
+  for (const t of tasksCompleted) {
+    const clean = t.trim().replace(/[。.;；]+$/, '')
+    if (clean) taskItems.push(clean)
+  }
+  for (const msg of workMessages) taskItems.push(msg)
+  if (taskItems.length > 0) ensure(mainCat, '任务').push(...taskItems)
+  if (docItems.length > 0) {
+    ensure(docsCat, '文档更新').push(...docItems)
+  }
+
+  // 每个项目桶：跨源最终合并（归一化去重 + 包含合并）
+  for (const catMap of result.values()) {
+    for (const [bucket, items] of catMap) {
+      catMap.set(bucket, mergeGroup(items, bucket === '文档更新' ? 6 : 4))
     }
   }
-
-  // Git 数据
-  for (const [repo, subMap] of gitByRepo) {
-    for (const [subDomain, items] of subMap) {
-      const category = DOMAIN_TO_CATEGORY[subDomain] || (subDomain === 'mso' ? '业务 & 开发' : '业务 & 开发')
-      const limit = subDomain === '文档更新' ? 8 : 5
-      for (const item of items.slice(0, limit)) {
-        addItem(category, subDomain, item)
-      }
-    }
-  }
-
-  // Opencode 数据
-  for (const [repo, subMap] of opencodeByProject) {
-    for (const [subDomain, items] of subMap) {
-      const category = DOMAIN_TO_CATEGORY[subDomain] || (subDomain === 'mso' ? '业务 & 开发' : '业务 & 开发')
-      for (const item of items.slice(0, 3)) {
-        addItem(category, subDomain, item)
-      }
-    }
-  }
-
-  // Lark 任务
-  for (const task of tasksCompleted) {
-    addItem('业务 & 开发', '其他任务', task)
-  }
-
-  // 飞书笔记/随手记
-  for (const note of notes) {
-    addItem('二、团队效能与基础建设', '随手记', note)
-  }
-
   return result
 }
 
-// 格式化输出（分类顺序取自 REPORT_TEMPLATE.md）
-function formatSections(merged: Map<string, Map<string, string[]>>, template: string): string {
-  const lines: string[] = []
+// ===== 结构化输出（title/level/text）=====
+
+function buildCompletedLines(merged: GroupMap, template: string): ReportLine[] {
+  const lines: ReportLine[] = []
   const cats = parseTemplateCategories(template)
-  const categoryOrder = cats.length > 0 ? cats : ['一、业务&开发', '二、团队效能与基础建设']
+  if (cats.length === 0) {
+    const plain = merged.get('__plain__')
+    if (plain) {
+      for (const [project, items] of plain) {
+        lines.push({ level: 1, text: project })
+        for (const item of items) lines.push({ level: 2, text: item })
+      }
+    }
+    return lines
+  }
 
-  // 子域排序：业务 & 开发里的固定顺序
-  const bizSubDomains = ['AI', 'Huiworker', '知识库', 'crosspay', '权限系统', '登录组件', 'huiwork-web', 'mso', '用户后台', '其他任务', '文档更新']
-  const effSubDomains = ['团队效能', 'hy-templates', 'hyfe-node-dependencies', 'svg-factory', '基础建设']
-
-  for (const catTitle of categoryOrder) {
-    const catName = catTitle.replace(/^[一二三四五六七八九十]+、\s*/, '')
-    const catMap = merged.get(catName) || new Map<string, string[]>()
+  for (const catTitle of cats) {
+    const catMap = merged.get(catTitle) || new Map<string, string[]>()
     if (catMap.size === 0) continue
+    lines.push({ title: true, text: catTitle })
+    for (const [project, items] of catMap) {
+      lines.push({ level: 1, text: project })
+      for (const item of items) lines.push({ level: 2, text: item })
+    }
+  }
+  return lines
+}
 
-    lines.push('一、业务 & 开发'.startsWith(catTitle) ? catTitle.replace('业务&开发', '业务 & 开发').replace('团队效能与基础建设', '团队效能与基础建设') : catTitle)
+function buildPlainLines(lines: string[]): ReportLine[] {
+  return lines.filter(Boolean).map(text => ({ level: 1, text }))
+}
 
-    const subDomains = catName.includes('业务') ? bizSubDomains : effSubDomains
+function generateUncompletedLines(tasks: { inProgress: string[] }): ReportLine[] {
+  if (tasks.inProgress.length === 0) return []
+  return tasks.inProgress.slice(0, 5).map(t => ({ level: 1, text: `${t} 进行中` }))
+}
 
-    let projectIdx = 0
-    for (const sub of subDomains) {
-      const items = catMap.get(sub)
-      if (!items || items.length === 0) continue
-      projectIdx++
-      lines.push(`  ${projectIdx}. ${sub}`)
-      const visible = sub === '文档更新' ? items.slice(0, 6) : items.slice(0, 4)
-      visible.forEach((item, ii) => {
-        lines.push(`    ${['a', 'b', 'c', 'd', 'e', 'f'][ii]}. ${item}`)
-      })
+function generateNextPlanLines(projects: string[], tasks: { inProgress: string[] }): ReportLine[] {
+  const plans: string[] = []
+  for (const t of tasks.inProgress.slice(0, 4)) plans.push(`继续推进 ${t}`)
+  for (const p of projects.slice(0, 4)) {
+    const key = normalizeKey(p)
+    const already = plans.some(x => normalizeKey(x).includes(key))
+    if (!already) plans.push(`继续推进 ${p} 相关工作`)
+  }
+  const dedupKeys = new Set<string>()
+  const unique = plans.filter(p => {
+    const k = normalizeKey(p)
+    if (dedupKeys.has(k)) return false
+    dedupKeys.add(k)
+    return true
+  })
+  return buildPlainLines(unique.slice(0, 8))
+}
+
+function generateReflectionLines(projects: string[]): ReportLine[] {
+  const list = Array.from(new Set(projects)).slice(0, 3).join('、')
+  const text = list ? `本周聚焦 ${list} 相关工作，持续推进并按计划交付` : '保持稳定推进节奏，持续产出并按计划交付'
+  return [{ level: 1, text }]
+}
+
+function generateReportRuleBased(data: ReportData, openId: string, template: string): ReportContent {
+  const tasks = analyzeTasks(data.tasks || {})
+  const gitProjects = groupCommitsByProject(data.git)
+  const docItems = collectDocItems(data.git)
+  const sessions = groupSessionsByProject(data.opencode)
+  const workMessages = analyzeUserMessages(data.messages || [], openId)
+  const noteItems = (data.notes?.workSummary || []).map((n: string) => n.replace(/^\[.*?\]\s*/, '')).filter(Boolean)
+
+  const merged = mergeSources(gitProjects, sessions, tasks.completed, [...workMessages, ...noteItems], docItems, template)
+  const completed = buildCompletedLines(merged, template)
+
+  const projects: string[] = []
+  for (const catMap of merged.values()) {
+    for (const project of catMap.keys()) {
+      if (project !== '文档更新' && project !== '任务') projects.push(project)
     }
   }
 
-  if (lines.length === 0) {
-    lines.push('一、业务 & 开发')
-    lines.push('  1. 接入并推进日常业务开发，详见 Git 提交与 AI 会话记录')
-  }
-
-  return lines.join('\n')
-}
-
-function generateUncompletedSection(tasks: { inProgress: string[] }): string {
-  if (tasks.inProgress.length === 0) return '/'
-  return tasks.inProgress.slice(0, 5).map(t => `${t} 进行中`).join('\n')
-}
-
-// 子域 -> 下周计划措辞（参照 REPORT_TEMPLATE.md 的简洁风格）
-const NEXT_PLAN_VERBS: Record<string, string> = {
-  'AI': '推进 AI 相关项目落地与垂直领域探索',
-  'Huiworker': '推进 Huiworker 客户端调研与开发',
-  '知识库': '推进知识库与对话模块能力建设',
-  'crosspay': '继续 crosspay 前端迭代与支付对接',
-  '权限系统': '继续权限系统相关功能开发与维护',
-  '登录组件': '推进登录组件持续优化与升级',
-  'huiwork-web': '推进 huiwork-web Electron 客户端维护',
-  'mso': '推进 mso 进件运营后台更新',
-  '用户后台': '推进用户后台项目沟通',
-  'hy-templates': '推进 hy-templates 模板更新与权限功能注入',
-  'hyfe-node-dependencies': '继续 node 依赖包维护与升级',
-  'svg-factory': '推进 svg-factory 下载与操作优化',
-  '团队效能': '推进知识库与飞书桥接能力建设、skills 平台维护',
-  '基础建设': '推进基础建设相关事项',
-  '其他任务': '推进日常业务开发与任务维护',
-}
-
-function generateNextPlanSection(
-  merged: Map<string, Map<string, string[]>>,
-  tasks: { inProgress: string[] }
-): string {
-  const plans: string[] = []
-
-  // 1) 进行中的任务优先
-  for (const t of tasks.inProgress.slice(0, 4)) {
-    plans.push(`继续推进 ${t}`)
-  }
-
-  // 2) 基于本周完成的业务子域推导下周继续方向（保持模板式一句一行，无编号）
-  const NEXT_PLAN_ORDER = ['AI', 'Huiworker', '知识库', 'crosspay', '权限系统', '登录组件', 'huiwork-web', 'mso', '用户后台', 'hy-templates', 'hyfe-node-dependencies', 'svg-factory', '团队效能', '基础建设', '其他任务']
-  const subSet = new Set<string>()
-  for (const [, subMap] of merged) {
-    for (const sub of subMap.keys()) subSet.add(sub)
-  }
-  const orderedSubs = NEXT_PLAN_ORDER.filter(sub => subSet.has(sub))
-
-  for (const sub of orderedSubs) {
-    const plan = NEXT_PLAN_VERBS[sub]
-    if (plan) plans.push(plan)
-  }
-
-  return plans.slice(0, 8).join('\n') || '继续推进进行中的任务'
-}
-
-function generateReport(data: ReportData, openId: string, template: string): ReportContent {
-  const messages = analyzeUserMessages(data.messages || [], openId)
-  const tasks = analyzeTasks(data.tasks || {})
-  const gitByRepo = groupGitByRepo(data.git)
-  const opencodeByProject = groupOpencodeByProject(data.opencode)
-  const noteItems = (data.notes?.workSummary || []).map((n: string) => {
-    const m = n.match(/\[飞书笔记\] (.+)/)
-    return m ? m[1] : n
-  })
-
-  const merged = mergeSources(gitByRepo, opencodeByProject, tasks.completed, noteItems)
-  const completed = formatSections(merged, template)
-  const uncompleted = generateUncompletedSection(tasks)
-  const nextPlan = generateNextPlanSection(merged, tasks)
-
   return {
     completed,
-    uncompleted,
-    nextPlan,
-    help: '/',
-    reflection: '本周聚焦核心业务推进与基础建设，多项目并行，保持提交粒度与联调节奏'
+    uncompleted: generateUncompletedLines(tasks),
+    nextPlan: generateNextPlanLines(projects, tasks),
+    help: [],
+    reflection: generateReflectionLines(projects),
   }
+}
+
+function analyzeTasks(tasks: any): { completed: string[]; inProgress: string[] } {
+  const completed: string[] = []
+  const inProgress: string[] = []
+  if (!tasks) return { completed, inProgress }
+  for (const task of (tasks.completed || [])) completed.push(task.summary || task.name || '未命名任务')
+  for (const task of (tasks.incomplete || [])) inProgress.push(task.summary || task.name || '未命名任务')
+  return { completed, inProgress }
+}
+
+const WEAK_ITEM_RE = /^(接入并推进日常业务开发|详见 Git|详见 AI|待补充|略)/
+
+function hasContent(report: ReportContent): boolean {
+  return report.completed.some(l => !l.title && !WEAK_ITEM_RE.test(l.text) && l.text.length > 3)
+}
+
+function emptyReport(): ReportContent {
+  return { completed: [], uncompleted: [], nextPlan: [], help: [], reflection: [] }
+}
+
+async function generateReport(data: ReportData, openId: string, template: string): Promise<ReportContent> {
+  console.log('🤖 开始生成周报内容...')
+  console.log('📄 使用通用规则引擎生成周报内容（数据驱动，无业务映射）...')
+  const report = generateReportRuleBased(data, openId, template)
+  if (!hasContent(report)) {
+    console.log('⚠️  本周无有效工作数据，返回空报告')
+    return emptyReport()
+  }
+  return report
+}
+
+// ===== 预览与主流程 =====
+
+function renderPreview(report: ReportContent): string {
+  const render = (lines: ReportLine[]): string => lines.map(l => {
+    if (l.title) return l.text
+    const bullet = l.level === 3 ? '  · ' : l.level === 2 ? '    - ' : '  · '
+    return `${bullet}${l.text}`
+  }).join('\n')
+  const parts = [
+    '【本周完成】',
+    render(report.completed) || '/',
+    '\n【未完成】',
+    render(report.uncompleted) || '/',
+    '\n【下周计划】',
+    render(report.nextPlan) || '/',
+    '\n【需要协调】',
+    render(report.help) || '/',
+    '\n【反思】',
+    render(report.reflection) || '/',
+  ]
+  return parts.join('\n')
 }
 
 function main() {
@@ -472,7 +451,7 @@ function main() {
   const template = loadTemplate()
   if (template) {
     const cats = parseTemplateCategories(template)
-    console.log(`📄 已加载 REPORT_TEMPLATE.md 模板（分类: ${cats.length > 0 ? cats.join(' / ') : '未识别，使用默认分类'}）`)
+    console.log(`📄 已加载 REPORT_TEMPLATE.md 模板（分类: ${cats.length > 0 ? cats.join(' / ') : '未识别，直接按项目平铺'}）`)
   }
 
   const collectedData = loadJson('collected-data.json')
@@ -494,36 +473,27 @@ function main() {
     } catch {}
   }
 
-  if (!openId) {
-    console.error('❌ 无法获取 OpenID')
-    process.exit(1)
-  }
-
   const reportData: ReportData = {
     ...collectedData,
     git: gitData,
     opencode: aiData,
-    notes: notesData
+    notes: notesData,
   }
 
-  const report = generateReport(reportData, openId, template)
+  generateReport(reportData, openId || '', template).then(report => {
+    writeFileSync('report.json', JSON.stringify(report, null, 2))
+    console.log('✅ report.json 已生成\n')
 
-  writeFileSync('report.json', JSON.stringify(report, null, 2))
-  console.log('✅ report.json 已生成\n')
-
-  console.log('📋 周报内容预览:')
-  console.log('─'.repeat(40))
-  console.log('【本周完成】')
-  console.log(report.completed.substring(0, 800) + (report.completed.length > 800 ? '...' : ''))
-  console.log('\n【未完成】')
-  console.log(report.uncompleted)
-  console.log('\n【下周计划】')
-  console.log(report.nextPlan)
-  console.log('\n【需要协调】')
-  console.log(report.help)
-  console.log('\n【反思】')
-  console.log(report.reflection)
-  console.log('─'.repeat(40))
+    console.log('📋 周报内容预览:')
+    console.log('─'.repeat(40))
+    console.log(renderPreview(report))
+    console.log('─'.repeat(40))
+  }).catch(err => {
+    console.error('❌ 生成失败:', err.message)
+    process.exit(1)
+  })
 }
 
 main()
+
+export { generateReport, renderPreview }

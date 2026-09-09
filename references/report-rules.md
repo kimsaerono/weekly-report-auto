@@ -1,51 +1,82 @@
-# 报告内容规则（AI 分析）
+# 报告内容规则（通用规则引擎）
 
-## report.json 结构
+## report.json 结构（结构化 schema）
 
-AI 读取采集到的数据文件，分析生成周报内容，写入 `report.json`：
+`generate-report.ts` 生成 `report.json`，每个字段为**显式标注层级/标题的行数组**，编号由填单端生成：
+- `title: true` → 分类标题（一、业务 & 开发），填为普通段落不编号
+- `level: 1` → OA 一级（项目/模块名）
+- `level: 2` → OA 二级（具体事项）
+- `level: 3` → OA 三级（少用）
 
 ```json
 {
-  "completed": "内容1\n内容2",
-  "uncompleted": "内容1",
-  "nextPlan": "内容1",
-  "help": "内容1",
-  "reflection": "内容1"
+  "completed": [
+    { "title": true, "text": "一、业务 & 开发" },
+    { "level": 1, "text": "项目A" },
+    { "level": 2, "text": "推进本地在线编译能力实现" },
+    { "level": 1, "text": "文档更新" },
+    { "level": 2, "text": "完善周报自动化 Skill 文档（数据源、Git 扫描、填单示例）" }
+  ],
+  "uncompleted": [],
+  "nextPlan": [],
+  "help": [],
+  "reflection": []
 }
 ```
 
-字段：`completed` 本周完成 / `uncompleted` 本周未完成及原因 / `nextPlan` 下周计划 / `help` 需要协调与帮助 / `reflection` 学习和反思。
+字段：`completed` 本周完成 / `uncompleted` 本周未完成及原因 / `nextPlan` 下周计划 / `help` 需要协调与帮助 / `reflection` 学习和反思。无内容用空数组，不要写"无"以外占位。
+
+## 通用归类（数据驱动，无公司/项目写死声明）
+
+生成引擎不包含任何业务映射（无仓库→业务域、无业务域→分类、无子域规则）。归类完全从数据本身推断：
+
+- **一级标签 = 仓库名 / 项目名直出**：对 Git 仓库路径、AI 会话目录取最后一段（自动忽略 `config.project.skipDirs` 与本机用户名）。新增项目/新仓库不需要任何配置改动。
+- **git 类型字段被使用**：`feat`→实现、`fix`→修复、`refactor`→重构、`docs`→完善文档、`test`→补充测试、`perf`→优化、`chore`→维护 等（映射见 `config.generate.commitVerbs`），作为条目的动词前缀。
+- **分类来自模板**：分类标题（一、业务 & 开发 / 二、团队效能与基础建设）从 `REPORT_TEMPLATE.md` 的「分类结构」读取；用户改模板即改分类，代码不写死。
+- **通用归类规则**：项目/任务/消息 → 第一个分类；文档/笔记 → 第二个分类（若模板只有 1 个分类则并入）。
+- **可调规则**：噪音/动词/消息过滤等正则源串集中在 `scripts/config.ts` 的 `CONFIG.generate`，支持 `config.local.json` 覆盖。
 
 ## 分析规则
 
-- 每个维度至少 1-3 条
-- 内容精简、有整合，不要原文照搬
-- **不要带序号**（OA 系统会自动编号，见下节）
+- 每个维度至少 1-3 条（无数据可不写）
+- 内容精简、**有整合**，不要原文照搬 commit message/会话标题
+- **严禁写序号**（`1.` / `a.` / `i.` / `一二三、`），编号由 OA 自动生成
 - 优先使用任务数据作为"完成工作"来源
-- 从消息中提取工作相关内容，忽略闲聊
+- 从消息中提取工作相关片段，忽略闲聊
+
+## 去重与合并规则
+
+- **归一化比对**：内容转小写、去掉标点/空格后相同 → 判定重复，只保留一条
+- **包含合并**：同组内若一条完整包含另一条（归一化后子串），保留更长的一条
+- **跨来源合并**：同一事项同时出现在 Git 提交、AI 会话、任务中 → 只保留一条最完整的
+- Git 多条提交归属同一项目 → 聚合为 1-2 条完整句子（动词开头），不逐条照搬
 
 ## OA 自动编号机制（重要）
 
-- 填入 OA 草稿时，**标题（一、二、…）作为普通段落不编号**；列表项由 OA 原生列表自动编号。
-- 编号通过工具栏「编号列表」激活或 Markdown `1. ` 触发。
+- 填入 OA 草稿时，**标题（一、业务 & 开发）作为普通段落不编号**；列表项由 OA 原生列表自动编号。
+- 层级由 `report.json` 的 `title/level` 字段精确决定，填单端用 `Tab`(降级)/`Shift+Tab`(升级) 落到对应层级。
 - `Enter` 续行自动递增编号；`Tab` 降级为 `a./b.` 子层；`Shift+Tab` 升级。
-- `report.json` **保持无序号干净数据**；序号前缀由 fill 脚本处理，填入前清理内容中已有序号（防止重复），层级靠 Tab/Shift+Tab 表达（`scripts/skill-auto.ts` 的 `fillField` 与 `scripts/playwright-fill.ts` 已实现）。
 - 最终层级示例：`一、业务 & 开发`（标题）→ `1.` 一级 → `a.` 二级 → `i.` 三级。
+- 填入前填单端 `stripResidualNumber` 会清理文本行首残留的 `1.`/`a.` 等序号（防止重复编号）。
+
+## 填单实现（单一共享模块）
+
+填单逻辑统一在 `scripts/oa-fill.ts`，两个入口共用同一份实现：
+- `skill-auto.ts` 第 9 步
+- `playwright-fill.ts`（`npm run fill` 独立入口）
+
+共享逻辑包含：编号按钮激活（`div[adit-key="list"][adit-value="number"]`，按字段容器定位避免 nth 顺序漂移）、`Enter` 续行、`Tab`/`Shift+Tab` 落层级、`verifyHierarchy` DOM 回读校验层级、截图留存。
 
 ## 写作风格（对齐 REPORT_TEMPLATE.md）
 
-- 每条以动词开头：开展、推进、完成、实现、优化、推动、配合、参与、梳理、产出
+- 每条以动词开头：实现、推进、完成、修复、优化、完善、重构、接入、开发
 - 一句话说清楚，不加修饰语
-- 技术术语直接使用（如 vue3、elementplus、hyfe 等）
+- 技术术语直接使用（如 vue3、elementplus 等）
 - 无编号，一条一行
 - 不要写"本周完成了xxx工作"这种废话，直接说事
 - 不要加"等"字结尾（除非确实有省略）
 - 可以用逗号连接相关事项
 
-## 分类结构（取自 REPORT_TEMPLATE.md）
+## 生成方式
 
-- 一、业务 & 开发
-- 二、团队效能与基础建设
-- （可根据实际内容增减分类）
-
-`scripts/generate-report.ts` 会自动读取 `REPORT_TEMPLATE.md` 的分类顺序格式化输出。
+仅使用内置通用规则引擎。`generate-report.ts` 按 **项目名（仓库名直出）** 聚合 Git 提交与 AI 会话，接入飞书消息与任务的完成项，产出符合 schema 的结构化内容。同一项目的多条提交自动合并为整合叙事，文档更新跨 commit 合并，同内容按 `normalizeKey` 去重 + 包含合并，分类标题取自 `REPORT_TEMPLATE.md` 的「分类结构」。
