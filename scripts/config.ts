@@ -19,6 +19,12 @@ export interface OaFieldDef {
   label: string // OA 表单标签
 }
 
+export interface BusinessDef {
+  label: string // 业务名（L1 展示）
+  roots?: string[] // 目录段精确匹配（取最深层命中）
+  repos?: string[] // 仓库名精确匹配（优先于 roots）
+}
+
 export interface Config {
   feishu: {
     reportRuleId: string // OA 周报表 ruleId（env FEISHU_REPORT_RULE_ID 优先于此默认值）
@@ -31,6 +37,7 @@ export interface Config {
   }
   project: {
     skipDirs: string[] // 项目名直出时忽略的目录（自动追加本机用户名）
+    businesses: BusinessDef[] // 业务化一级标题：仓库名/目录段命中 → L1=业务名，同业务多仓库合并（可三级）
   }
   git: {
     searchOverride: string[] // 空 = 自动发现（homedir + 卷 + cwd）
@@ -73,6 +80,7 @@ export const DEFAULT_CONFIG: Config = {
   },
   project: {
     skipDirs: ['Users', 'home', 'workspace', 'GitHub', 'folders'],
+    businesses: [],
   },
   git: {
     searchOverride: [],

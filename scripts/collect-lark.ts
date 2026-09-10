@@ -94,7 +94,7 @@ async function collectMessagesGlobal(): Promise<any[]> {
   // 群聊 + 私聊一次搜索抓全（--page-all 自动翻页）
   for (const chatType of ['group', 'p2p']) {
     try {
-      const res = execLarkCli(`lark-cli im +messages-search --start "${startTimeISO}" --end "${endTimeISO}" --chat-type ${chatType} --page-size 50 --page-all`)
+      const res = execLarkCli(`lark-cli im +messages-search --start "${startTimeISO}" --end "${endTimeISO}" --chat-type ${chatType} --page-size 50 --page-all --as user`)
       if (res?.ok) {
         const msgs = res.data?.messages || []
         for (const msg of msgs) pushMessage(msg)
@@ -166,13 +166,13 @@ async function collectTasks(): Promise<{ completed: any[]; incomplete: any[] }> 
   }
 
   // 我分配给我的任务
-  const myTasksRes = execLarkCli('lark-cli task +get-my-tasks --page-all')
+  const myTasksRes = execLarkCli('lark-cli task +get-my-tasks --page-all --as user')
   if (myTasksRes?.ok) {
     for (const task of (myTasksRes.data?.items || [])) pushTask(task)
   }
 
   // 与我相关的任务（含我创建的）
-  const relatedRes = execLarkCli('lark-cli task +get-related-tasks --page-all')
+  const relatedRes = execLarkCli('lark-cli task +get-related-tasks --page-all --as user')
   if (relatedRes?.ok) {
     for (const task of (relatedRes.data?.items || [])) pushTask(task)
   }

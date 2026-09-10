@@ -36,7 +36,7 @@ function collectNotes(): NotesResult {
 
   try {
     const res = spawnSync('lark-cli', [
-      'drive', '+search', '--mine', '--doc-types', 'docx,doc,sheet,bitable',
+      'drive', '+search', '--as', 'user', '--mine', '--doc-types', 'docx,doc,sheet,bitable',
       '--created-since', startStr, '--created-until', endStr, '--format', 'json',
     ], { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 })
     if (res.status !== 0) throw new Error(`exit ${res.status}: ${res.stderr || res.stdout}`)

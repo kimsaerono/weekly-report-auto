@@ -2,8 +2,9 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
 import { execSync } from 'child_process'
-import { homedir } from 'os'
 import { config } from 'dotenv'
+// 项目名跨平台解析：正斜杠归一化 + 盘符/用户名过滤 + 业务归并（L1=业务名，多仓库三级排版）
+import { deriveProjectName, resolveBusiness, toPosix } from './project-name.ts'
 import { CONFIG } from './config.ts'
 
 config()
@@ -89,18 +90,13 @@ function stripCommitPrefix(msg: string): string {
     .trim()
 }
 
-// 项目名从路径直出：忽略目录结构与本机用户名，其余取最后一段
-const USERNAME = (homedir().split('/').pop() || '').toLowerCase()
-const IGNORED_DIRS = new Set([...CONFIG.project.skipDirs, USERNAME])
-
+// 项目名统一走 project-name.ts：Windows 反斜杠/盘符/用户名已处理；titleRoots 命中语义名（仓库名）
 function extractProjectName(pathOrRepo: string): string {
-  if (!pathOrRepo) return '其他'
-  const parts = pathOrRepo.split('/').filter(Boolean)
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i]
-    if (p && !IGNORED_DIRS.has(p)) return p
-  }
-  return parts[parts.length - 1] || '其他'
+  return deriveProjectName(pathOrRepo)
+}
+
+function toPosixPath(p: string): string {
+  return toPosix(p)
 }
 
 // git 提交类型 → 动词前缀（feat/fix/refactor/docs/... 通用字段，无业务映射）
@@ -169,63 +165,74 @@ function mergeGroup(items: string[], max = 4): string[] {
   return entries.filter(([k]) => !dropped.has(k)).map(([, v]) => v).slice(0, max)
 }
 
-// git 非文档提交：项目 -> 加工后的条目（同项目多条聚合）
-function groupCommitsByProject(gitData: any): Map<string, string[]> {
-  const map = new Map<string, string[]>()
+// git 非文档提交：业务名 -> 仓库 -> 加工后的条目（同业务多仓库归并，保留仓库归属）
+function groupCommitsByProject(gitData: any): Map<string, Map<string, string[]>> {
+  const map = new Map<string, Map<string, string[]>>()
   if (!gitData?.commits) return map
   for (const c of gitData.commits || []) {
     const docFiles = (c.files || []).filter((f: any) => f.isDoc && f.path && f.status !== 'D')
     if (docFiles.length > 0) continue // 文档提交归入「文档更新」分组
-    const project = extractProjectName(c.repo)
+    const { label, repo } = resolveBusiness(c.repo)
     const raw = c.message || '无描述'
     if (isNoise(raw)) continue
     const item = rewriteCommit(raw)
-    if (!map.has(project)) map.set(project, [])
-    map.get(project)!.push(item)
+    if (!map.has(label)) map.set(label, new Map())
+    const repoMap = map.get(label)!
+    if (!repoMap.has(repo)) repoMap.set(repo, [])
+    repoMap.get(repo)!.push(item)
   }
-  for (const [project, items] of map) map.set(project, mergeGroup(items))
+  for (const repoMap of map.values()) {
+    for (const [repo, items] of repoMap) repoMap.set(repo, mergeGroup(items))
+  }
   return map
 }
 
-// git 文档提交：按项目产出「完善 {项目} 文档：文件名…」，全局合并
+// git 文档提交：按项目产出「完善 {项目} 文档：文件名…」，全局合并；同名文件按项目独立去重（跨仓库不串）
 function collectDocItems(gitData: any): string[] {
   const byProject = new Map<string, string[]>()
-  const seenFiles = new Set<string>()
+  const seenByProject = new Map<string, Set<string>>()
   if (!gitData?.commits) return []
   for (const c of gitData.commits || []) {
     const project = extractProjectName(c.repo)
     const docFiles = (c.files || []).filter((f: any) => f.isDoc && f.path && f.status !== 'D')
     if (docFiles.length === 0) continue
     if (!byProject.has(project)) byProject.set(project, [])
+    if (!seenByProject.has(project)) seenByProject.set(project, new Set())
+    const seen = seenByProject.get(project)!
     for (const f of docFiles) {
-      const name = (f.path || '').split('/').pop() || ''
-      if (seenFiles.has(name)) continue
-      seenFiles.add(name)
+      const name = toPosixPath(f.path || '').split('/').pop() || ''
+      if (!name || seen.has(name)) continue
+      seen.add(name)
       byProject.get(project)!.push(name.replace(/\.md$/i, ''))
     }
   }
   const items: string[] = []
   for (const [project, names] of byProject) {
+    if (names.length === 0) continue
     const n = names.length > 4 ? [...names.slice(0, 4), `等 ${names.length - 4} 个文档`] : names
     items.push(`完善 ${project} 文档：${n.join('、')}`)
   }
   return mergeGroup(items, 6)
 }
 
-// AI 会话：项目 -> 标题加工
-function groupSessionsByProject(opencodeData: any): Map<string, string[]> {
-  const map = new Map<string, string[]>()
+// AI 会话：业务名 -> 仓库 -> 标题加工（仓库名与 git 同源解析，保证会话与提交落到同一业务 L1）
+function groupSessionsByProject(opencodeData: any): Map<string, Map<string, string[]>> {
+  const map = new Map<string, Map<string, string[]>>()
   if (!opencodeData?.sessions) return map
   const toSkip = new RegExp(CONFIG.generate.sessionSkipPattern, 'i')
   for (const s of opencodeData.sessions || []) {
     const title = (s.title || '').trim()
     if (!title || toSkip.test(title) || isNoise(title)) continue
-    const project = s.project || extractProjectName(s.directory || '')
+    const { label, repo } = resolveBusiness(s.directory || s.project || '')
     const item = rewriteSession(title)
-    if (!map.has(project)) map.set(project, [])
-    map.get(project)!.push(item)
+    if (!map.has(label)) map.set(label, new Map())
+    const repoMap = map.get(label)!
+    if (!repoMap.has(repo)) repoMap.set(repo, [])
+    repoMap.get(repo)!.push(item)
   }
-  for (const [project, items] of map) map.set(project, mergeGroup(items))
+  for (const repoMap of map.values()) {
+    for (const [repo, items] of repoMap) repoMap.set(repo, mergeGroup(items))
+  }
   return map
 }
 
@@ -253,12 +260,18 @@ function analyzeUserMessages(messages: any[], openId: string): string[] {
 
 // ===== 分类与合并（分类结构来自模板，无写死映射）=====
 
-type GroupMap = Map<string, Map<string, string[]>> // 分类标题 -> 项目 -> 条目
+type GroupMap = Map<string, Map<string, string[]>> // 分类标题 -> 桶key(label+repo) -> 条目
 
-// 通用归类规则：项目/任务/消息 → 第一个分类；文档/笔记 → 第二个分类（若无则并入第一个）
+// 桶 key 编码业务名与仓库归属；伪桶（任务/文档更新）不含仓库段
+const BUCKET_SEP = '\u0001'
+const bucketKey = (label: string, repo: string) => (repo ? `${label}${BUCKET_SEP}${repo}` : label)
+const bucketLabel = (key: string) => (key.includes(BUCKET_SEP) ? key.slice(0, key.indexOf(BUCKET_SEP)) : key)
+
+// 通用归类规则：业务桶（多仓库可三级的 label+repo）→ 第一个分类；
+// 任务/消息 → 第一个分类的「任务」桶；文档/笔记 → 第二个分类的「文档更新」桶
 function mergeSources(
-  gitProjects: Map<string, string[]>,
-  sessions: Map<string, string[]>,
+  gitBuckets: Map<string, Map<string, string[]>>,
+  sessionBuckets: Map<string, Map<string, string[]>>,
   tasksCompleted: string[],
   workMessages: string[],
   docItems: string[],
@@ -275,15 +288,17 @@ function mergeSources(
     if (!catMap.has(bucket)) catMap.set(bucket, [])
     return catMap.get(bucket)!
   }
+  const addBuckets = (maps: Map<string, Map<string, string[]>>) => {
+    for (const [label, repoMap] of maps) {
+      for (const [repo, items] of repoMap) {
+        ensure(mainCat, bucketKey(label, repo)).push(...items)
+      }
+    }
+  }
 
-  for (const [project, items] of gitProjects) {
-    const bucket = ensure(mainCat, project)
-    bucket.push(...items)
-  }
-  for (const [project, items] of sessions) {
-    const bucket = ensure(mainCat, project)
-    bucket.push(...items)
-  }
+  addBuckets(gitBuckets)
+  addBuckets(sessionBuckets)
+
   const taskItems: string[] = []
   for (const t of tasksCompleted) {
     const clean = t.trim().replace(/[。.;；]+$/, '')
@@ -295,7 +310,7 @@ function mergeSources(
     ensure(docsCat, '文档更新').push(...docItems)
   }
 
-  // 每个项目桶：跨源最终合并（归一化去重 + 包含合并）
+  // 每个桶：跨源最终合并（归一化去重 + 包含合并）
   for (const catMap of result.values()) {
     for (const [bucket, items] of catMap) {
       catMap.set(bucket, mergeGroup(items, bucket === '文档更新' ? 6 : 4))
@@ -311,12 +326,7 @@ function buildCompletedLines(merged: GroupMap, template: string): ReportLine[] {
   const cats = parseTemplateCategories(template)
   if (cats.length === 0) {
     const plain = merged.get('__plain__')
-    if (plain) {
-      for (const [project, items] of plain) {
-        lines.push({ level: 1, text: project })
-        for (const item of items) lines.push({ level: 2, text: item })
-      }
-    }
+    if (plain) appendBucketLines(lines, plain)
     return lines
   }
 
@@ -324,12 +334,33 @@ function buildCompletedLines(merged: GroupMap, template: string): ReportLine[] {
     const catMap = merged.get(catTitle) || new Map<string, string[]>()
     if (catMap.size === 0) continue
     lines.push({ title: true, text: catTitle })
-    for (const [project, items] of catMap) {
-      lines.push({ level: 1, text: project })
-      for (const item of items) lines.push({ level: 2, text: item })
-    }
+    appendBucketLines(lines, catMap)
   }
   return lines
+}
+
+// 业务桶排版：同业务多仓库 → 三级（业务名/仓库/条目）；单仓库或伪桶 → 两级（业务名/条目）
+function appendBucketLines(lines: ReportLine[], catMap: Map<string, string[]>): void {
+  const byLabel = new Map<string, Array<{ repo: string; items: string[] }>>()
+  for (const [key, items] of catMap) {
+    const label = bucketLabel(key)
+    const repo = key.includes(BUCKET_SEP) ? key.slice(key.indexOf(BUCKET_SEP) + 1) : ''
+    if (!byLabel.has(label)) byLabel.set(label, [])
+    byLabel.get(label)!.push({ repo, items })
+  }
+  for (const [label, entries] of byLabel) {
+    const multiRepo = new Set(entries.filter(e => e.repo).map(e => e.repo.toLowerCase())).size > 1
+    if (multiRepo) {
+      lines.push({ level: 1, text: label })
+      for (const e of entries) {
+        lines.push({ level: 2, text: e.repo })
+        for (const item of e.items) lines.push({ level: 3, text: item })
+      }
+    } else {
+      lines.push({ level: 1, text: label })
+      for (const e of entries) for (const item of e.items) lines.push({ level: 2, text: item })
+    }
+  }
 }
 
 function buildPlainLines(lines: string[]): ReportLine[] {
@@ -378,8 +409,9 @@ function generateReportRuleBased(data: ReportData, openId: string, template: str
 
   const projects: string[] = []
   for (const catMap of merged.values()) {
-    for (const project of catMap.keys()) {
-      if (project !== '文档更新' && project !== '任务') projects.push(project)
+    for (const key of catMap.keys()) {
+      const label = bucketLabel(key)
+      if (label !== '文档更新' && label !== '任务') projects.push(label)
     }
   }
 
@@ -467,7 +499,7 @@ function main() {
   let openId = process.env.FEISHU_OPEN_ID
   if (!openId) {
     try {
-      const output = execSync('lark-cli contact +get-user', { encoding: 'utf-8' })
+      const output = execSync('lark-cli contact +get-user --as user', { encoding: 'utf-8' })
       const result = JSON.parse(output)
       openId = result?.data?.user?.open_id
     } catch {}

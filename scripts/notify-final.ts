@@ -17,7 +17,16 @@ function main() {
   const truncate = (text: string, maxLen: number = 50) =>
     text.length > maxLen ? text.substring(0, maxLen) + '...' : text
 
-  const message = `本周完成: ${truncate(report.completed)}\n下周计划: ${truncate(report.nextPlan)}`
+  // report.json 是结构化数组 {title?, level?, text}，取非标题行的文本拼成摘要
+  const excerpt = (lines: any, max: number = 4): string => {
+    const texts = (Array.isArray(lines) ? lines : [])
+      .filter((l: any) => l && l.text && !l.title)
+      .map((l: any) => l.text)
+      .slice(0, max)
+    return texts.length ? texts.join(' · ') : '无'
+  }
+
+  const message = `本周完成: ${truncate(excerpt(report.completed), 60)}\n下周计划: ${truncate(excerpt(report.nextPlan), 60)}`
   SystemNotifier.notify('📋 周报已生成', message)
   SystemNotifier.playSound()
   console.log('✅ 系统通知已发送')

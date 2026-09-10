@@ -46,7 +46,7 @@ function detectPath(paths: string[]): string | null {
 
 function cleanProjectPath(dir: string): string {
   const parts = (dir || '').split(/[\/\\]/).filter(Boolean)
-  const username = (home.split('/').pop() || '').toLowerCase()
+  const username = (home.split(/[\/\\]/).pop() || '').toLowerCase()
   const skip = new Set([...CONFIG.project.skipDirs, username])
   for (let i = parts.length - 1; i >= 0; i--) {
     if (!skip.has(parts[i])) return parts[i]

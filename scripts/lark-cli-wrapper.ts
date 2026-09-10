@@ -2,7 +2,7 @@ import { execSync } from 'child_process'
 
 export class LarkCLI {
   static getCurrentUser(): { open_id: string; name: string } {
-    const output = execSync('lark-cli contact +get-user', { encoding: 'utf-8' })
+    const output = execSync('lark-cli contact +get-user --as user', { encoding: 'utf-8' })
     const result = JSON.parse(output)
     const openId = result?.data?.user?.open_id
     const name = result?.data?.user?.name
@@ -12,7 +12,7 @@ export class LarkCLI {
 
   static getMessages(options: { startTime?: string; endTime?: string; limit?: number } = {}): any {
     try {
-      const searchArgs = ['im', '+messages-search', '--page-size', String(options.limit || 50), '--page-all']
+      const searchArgs = ['im', '+messages-search', '--as', 'user', '--page-size', String(options.limit || 50), '--page-all']
       if (options.startTime) searchArgs.push('--start', options.startTime)
       if (options.endTime) searchArgs.push('--end', options.endTime)
       
@@ -30,7 +30,7 @@ export class LarkCLI {
       for (let i = 0; i < messageIds.length; i += BATCH_SIZE) {
         const batch = messageIds.slice(i, i + BATCH_SIZE)
         try {
-          const mgetArgs = ['im', '+messages-mget', '--message-ids', batch.join(',')]
+          const mgetArgs = ['im', '+messages-mget', '--as', 'user', '--message-ids', batch.join(',')]
           const mgetOutput = execSync(`lark-cli ${mgetArgs.join(' ')}`, { encoding: 'utf-8' })
           const mgetData = JSON.parse(mgetOutput)
           if (mgetData?.data?.messages) {
@@ -55,7 +55,7 @@ export class LarkCLI {
   }
 
   static getTasks(options: { status?: 'completed' | 'incomplete' } = {}): any {
-    const args = ['task', '+get-my-tasks', '--page-all']
+    const args = ['task', '+get-my-tasks', '--as', 'user', '--page-all']
     if (options.status === 'completed') args.push('--complete')
     const output = execSync(`lark-cli ${args.join(' ')}`, { encoding: 'utf-8' })
     return JSON.parse(output)

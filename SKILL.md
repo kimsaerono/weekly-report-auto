@@ -43,7 +43,7 @@ weekly-report-auto/
 ### 个性化配置（scripts/config.ts）
 
 因人/因环境而异的配置统一集中在 `scripts/config.ts` 的 `DEFAULT_CONFIG`：
-OA ruleId、表单字段标签与顺序、lark-cli 授权域、项目名直出忽略目录、Git 仓库扫描目录/作者、AI 工具清单与路径、生成规则（噪音/动词/消息过滤）。
+OA ruleId、表单字段标签与顺序、lark-cli 授权域、项目名直出忽略目录与**业务归并列表**（`project.businesses`，仓库名/目录段命中 → L1=业务名，同业务多仓库合并为三级层级）、Git 仓库扫描目录/作者、AI 工具清单与路径、生成规则（噪音/动词/消息过滤）。
 
 **扩展方式：** 在 skill 根目录新建 `config.local.json`（gitignored，参考 `config.local.example.json`）只写想覆盖的键即可，运行时深度合并；数组整体替换、对象逐字段合并、路径支持 `~`。什么都不建则用内置默认值（即现行为）。
 
@@ -72,7 +72,7 @@ npx tsx scripts/collect-notes.ts       # 飞书文档笔记（需 search:docs:re
 
 AI 读取采集到的数据文件，分析生成周报内容，写入 `report.json`。分析规则与 report.json 结构详见 [references/report-rules.md](references/report-rules.md)。
 
-**核心要点：** 每个维度至少 1-3 条；内容精简有整合；**report.json 不带序号**（OA 自动编号，序号前缀由 fill 脚本处理）；优先使用任务数据；忽略闲聊；**归类数据驱动**——项目名（仓库名）直出一级标签，git type（feat/fix…）映射动词前缀，分类取自模板，无业务写死配置。
+**核心要点：** 每个维度至少 1-3 条；内容精简有整合；**report.json 不带序号**（OA 自动编号，序号前缀由 fill 脚本处理）；优先使用任务数据；忽略闲聊；**归类数据驱动**——业务名/仓库名直出一级标签（`businesses` 归并，多仓库三级），git type（feat/fix…）映射动词前缀，分类取自模板，默认配置无业务写死。
 
 ### 3. 填入草稿
 

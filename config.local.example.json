@@ -15,7 +15,11 @@
     ]
   },
   "project": {
-    "skipDirs": ["Users", "home", "workspace", "GitHub", "folders"]
+    "skipDirs": ["Users", "home", "workspace", "GitHub", "folders"],
+    "businesses": [
+      { "label": "业务板块A", "roots": ["业务目录A"] },
+      { "label": "业务板块B", "repos": ["repo-a", "repo-b"] }
+    ]
   },
   "git": {
     "searchOverride": [],

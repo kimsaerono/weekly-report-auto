@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { homedir } from 'os'
 import { join, relative } from 'path'
 import { CONFIG } from './config.ts'
+import { toPosix } from './project-name.ts'
 
 function formatLocal(date: Date): string {
   const y = date.getFullYear()
@@ -126,7 +127,7 @@ export class GitCollector {
             date: parts[2],
             author: parts[3],
             email: parts[4],
-            repo: relative(homedir(), repoPath),
+            repo: toPosix(relative(homedir(), repoPath)),
             files: [],
           }
         } else if (current) {
@@ -162,6 +163,8 @@ export class GitCollector {
 
   private static isDocFile(path: string): boolean {
     const lower = path.toLowerCase().split('/').pop() || path.toLowerCase()
+    // webpack extractComments 产物（*.js.LICENSE.txt / *.css.LICENSE.txt 等）非文档
+    if (/\.(js|css|json|mjs|ts)\.license\.txt$/i.test(lower)) return false
     const docExts = ['.md', '.txt', '.rst', '.adoc', '.docx', '.pdf']
     if (docExts.some(ext => lower.endsWith(ext))) return true
     return /^(readme|changelog|license|notice|contributing|authors|security)(\.|$)/i.test(path)
@@ -233,7 +236,7 @@ export class GitCollector {
     for (const repo of repos) {
       const commits = this.collectFromRepo(repo, author, since, until)
       if (commits.length > 0) {
-        console.log(`  ${relative(homedir(), repo)} → ${commits.length} 条提交`)
+        console.log(`  ${toPosix(relative(homedir(), repo))} → ${commits.length} 条提交`)
         allCommits.push(...commits)
         validRepoCount++
       }
@@ -248,7 +251,7 @@ export class GitCollector {
     return {
       commits: allCommits,
       repoCount: repos.length,
-      repos: repos.map(r => relative(homedir(), r)),
+      repos: repos.map(r => toPosix(relative(homedir(), r))),
     }
   }
 

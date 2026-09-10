@@ -145,7 +145,59 @@ export async function fillField(page: any, ed: any, value: string | Array<{ titl
     await setTimeout(220)
     await page.keyboard.type(l.text, { delay: 5 })
     cur = l.level
-    await setTimeout(140)
+
+    // 行内回读：刚输入的行应非空。OA 异步排版偶发把末尾文本丢成空项，
+    // 空则等待后重读，仍空才 focus+重输一次（避免误判造成重复文本）
+    if (l.text.trim()) {
+      let ok = await lastLineHasText(page, fieldIdx)
+      if (!ok) {
+        await setTimeout(500)
+        ok = await lastLineHasText(page, fieldIdx)
+      }
+      if (!ok) {
+        await ed.focus().catch(() => {})
+        await setTimeout(150)
+        await page.keyboard.type(l.text, { delay: 5 })
+        await setTimeout(450)
+      }
+    }
+    await setTimeout(400)
+  }
+}
+
+// 读取字段最后一个子元素是否有有效文本（OA 排版未提交时为 false）
+async function lastLineHasText(page: any, fieldIdx: number): Promise<boolean> {
+  try {
+    const ed = page.locator('[contenteditable="true"]').nth(fieldIdx)
+    return !!(await ed.evaluate((el: HTMLElement) => {
+      const last = el.children[el.children.length - 1] as HTMLElement | undefined
+      return (last?.innerText || '').replace(/\u200b/g, '').trim() !== ''
+    }))
+  } catch {
+    return false
+  }
+}
+
+// 清理空列表项：删除内容为空的编号项（没有内容的序号不保留），绝不动标题/普通段落
+export async function sanitizeEmptyListItems(page: any, fieldIdx: number): Promise<number> {
+  try {
+    const ed = page.locator('[contenteditable="true"]').nth(fieldIdx)
+    const removed = ((await ed.evaluate((el: HTMLElement) => {
+      let count = 0
+      const lis = Array.from(el.querySelectorAll('li'))
+      for (const li of lis) {
+        const t = (li.textContent || '').replace(/\u200b/g, '').trim()
+        if (t === '') { li.remove(); count++ }
+      }
+      return count
+    })) as number) || 0
+    if (removed > 0) {
+      console.log(`   [清理] 字段${fieldIdx} 删除 ${removed} 个空列表项`)
+      await setTimeout(400)
+    }
+    return removed
+  } catch {
+    return 0
   }
 }
 
@@ -275,7 +327,8 @@ export async function fillReportToOA(opts?: { holdMs?: number; keepOpen?: boolea
     console.log(`\n=== 填入: ${f.label} ===`)
     await fillField(page, editable, f.value, i)
 
-    // 填入后验证
+    // 清理空列表项（确保无内容的 a./1. 不残留），再回读验证层级
+    await sanitizeEmptyListItems(page, i)
     await verifyHierarchy(page, i)
   }
 

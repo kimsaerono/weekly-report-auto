@@ -16,7 +16,7 @@
 - `path` 文件路径；`status` 变更状态（A 新增 / M 修改 / D 删除 / R 重命名 / C 复制）；`isDoc` 文档类标记。
 - `summary`：采集时为文档文件自动提取内容摘要（首标题 + 主要二级章节），供周报「文档更新」分组展示。
 - 文档判定：文件名命中 `README`/`CHANGELOG`/`LICENSE`/`NOTICE`/`CONTRIBUTING` 等，或扩展名为 `.md/.txt/.rst/.adoc/.docx/.pdf`（大小写不敏感）。
-- 周报「文档更新」分组按 commit 聚合：一条展示一个改动文档的提交，格式 `提交语义（文件清单）`，跨提交重复文件自动去重、文件名简化为 basename，避免逐文件罗列。
+- 周报「文档更新」分组按 commit 聚合：一条展示一个改动文档的提交，格式 `提交语义（文件清单）`，跨提交重复文件自动去重、文件名简化为 basename、**按项目独立去重**（同名文件在不同仓库各自保留，不会串到别的项目下），避免逐文件罗列。
 
 ### Git 扫描范围（mac/windows 全局）
 
@@ -34,9 +34,14 @@
 
 ### 项目名直出
 
-- 周报一级标签 = 仓库名 / 项目路径最后一段（自动忽略 `config.project.skipDirs` + 本机用户名）。
-- AI 会话的 `project` 字段同样按此规则清洗（`collect-ai-tools.ts` 的 `cleanProjectPath`）。
-- **新增仓库/项目不需要任何配置**，归类完全数据驱动。
+- 周报一级标签 = 业务名/仓库名直出（详见 `references/report-rules.md`）：路径统一做跨平台解析（正斜杠归一化、忽略盘符/用户名/`config.project.skipDirs`），`config.project.businesses` 命中时 L1=业务名（多仓库合并，可三级），未命中取最后一段仓库名。
+- Git 的 `repo` 字段存储时以 `toPosix(relative(homedir, repoPath))` 归一化（Windows 上即使跨盘也不会存成 `E:\...` 绝对路径），`generate-report.ts`/`check-git-mapping.ts` 消费同一解析。
+- AI 会话的 `project` 字段按 `cleanProjectPath` 清洗（`collect-ai-tools.ts`，用户名探测兼容 Windows 分隔符），生成端以会话 `directory` 走与 Git 相同的 `resolveBusiness`，保证会话与提交落在同一业务。
+- **新增仓库/项目不需要任何配置**，归类完全数据驱动（默认配置不含业务名）。
+
+### 对应关系校验
+
+- `npx tsx scripts/check-git-mapping.ts`：输出仓库↔提交↔文件对照，告警「提交缺 repo / 提交无文件明细」等归问题，并内置 Windows 驱动盘路径样例断言语义名解析结果（含 businesses 归并/多仓库三级），用于回归确认 L1 不出现磁盘路径。
 
 ### 个性化覆盖（scripts/config.ts）
 

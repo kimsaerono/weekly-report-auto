@@ -133,7 +133,7 @@ class SkillAutomation {
 
   private static async sendReportMessage(report: any): Promise<void> {
     try {
-      const output = execSync('lark-cli contact +get-user', { encoding: 'utf-8' })
+      const output = execSync('lark-cli contact +get-user --as user', { encoding: 'utf-8' })
       const result = JSON.parse(output)
       const currentOpenId = result?.data?.user?.open_id
       if (!currentOpenId) {
@@ -169,7 +169,7 @@ class SkillAutomation {
 
     console.log('🔍 自动获取 OpenID...')
     try {
-      const output = execSync('lark-cli contact +get-user', { encoding: 'utf-8' })
+      const output = execSync('lark-cli contact +get-user --as user', { encoding: 'utf-8' })
       const result = JSON.parse(output)
       const openId = result?.data?.user?.open_id
       if (openId) { this.saveOpenIdToEnv(openId); return { valid: true } }
