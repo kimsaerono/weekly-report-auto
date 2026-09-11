@@ -49,14 +49,15 @@ export interface Config {
     titleSkipKeywords: string[] // 会话标题过滤关键词（如 subagent/explore）
   }
   generate: {
-    noisePatterns: string[] // 提交/标题噪音正则源串
+    noisePatterns: string[] // 提交/标题噪音正则源串（仅通用结构噪音，如 Merge/空行）
     commitVerbs: Record<string, string> // git 类型 → 动词前缀
     workVerbs: string[] // 已带动词的条目不再加前缀
     sessionDoneMarkers: string[] // 会话命中标记词 → 用「完成」
     sessionDefaultVerb: string // 会话默认动词（推进）
-    sessionSkipPattern: string // 会话标题跳过正则源串
-    messageNoiseWords: string[] // 消息噪音词
-    messageStrongVerbs: string[] // 消息强动词
+    sessionSkipPattern: string // 会话标题跳过正则源串（空 = 不过滤，语义由 AI 分析层判断）
+    messageMinLen: number // 聊天结构预过滤：最小长度
+    messageMaxLen: number // 聊天结构预过滤：最大长度
+    messageMaxCandidates: number // 聊天结构预过滤：候选条数上限
   }
 }
 
@@ -112,11 +113,12 @@ export const DEFAULT_CONFIG: Config = {
     ],
     commitVerbs: { feat: '实现', fix: '修复', refactor: '重构', docs: '完善文档', chore: '维护', style: '优化', test: '补充测试', perf: '优化', build: '构建维护' },
     workVerbs: ['实现', '推进', '完成', '修复', '优化', '完善', '重构', '接入', '开发', '维护', '整理', '补充', '升级', '部署', '联调', '调研', '产出', '梳理', '推动', '配合', '参与', '支持', '打通', '适配', '创建', '规划', '上线'],
-    sessionDoneMarkers: ['实现', '完成', '上线', '闭环'],
+    sessionDoneMarkers: ['实现', '完成', '上线', '闭环', '配置', '调整', '修改', '优化', '重构', '搭建', '部署', '发布', '测试', '接入', '对接', '集成', '开发', '规划', '调研', '验证', '联调', '提测', '添加', '修复', '新增', '完善', '解决', '处理', '排查', '修正', '撰写'],
     sessionDefaultVerb: '推进',
-    sessionSkipPattern: 'subagent|Explore|Analyze|Load|greeting|Restoring|New session|撰写周报',
-    messageNoiseWords: ['需要', '吗', '吧', '呢', '还是', '其实', '感觉', '觉得', '你看', '我认为', '我理解', '提示词', '架构', '模型', '框架', '训练', '推理', '引擎', '你觉得', '怎么样', '怎么', '什么', '哪', '可以', '过来', '一下', '帮我', '帮忙', '评估', '对应', '方面', '这些', '那些', '这块', '那个', '这坨', '工资', '加班', '吃饭', '下班', '放假', '考勤'],
-    messageStrongVerbs: ['已完成', '推进', '实现', '修复', '上线', '发布', '部署', '验收', '联调', '对接', '接入', '打通', '排期', '立项', '提测', '迭代'],
+    sessionSkipPattern: '',
+    messageMinLen: 8,
+    messageMaxLen: 50,
+    messageMaxCandidates: 200,
   },
 }
 

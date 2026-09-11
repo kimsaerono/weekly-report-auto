@@ -4,7 +4,7 @@
 
 | 采集器 | 独立运行 | 输出文件 | 内容 |
 |--------|---------|---------|------|
-| 飞书数据 | `npx tsx scripts/collect-lark.ts` | `collected-data.json` | 消息、日历事件、任务 |
+| 飞书数据 | `npx tsx scripts/collect-lark.ts` | `collected-data.json`, `messages-candidates.json` | 消息、日历事件、任务；`messages-candidates.json` 为结构预过滤产物（零语义规则），供 AI 分析层使用 |
 | Git 数据 | `npx tsx scripts/collect-git.ts` | `git-commits.json` | 全仓库本周提交（含改动文件明细）、整理为工作项 |
 | AI 工具会话 | `npx tsx scripts/collect-ai-tools.ts` | `ai-data.json` | 6 个 AI 工具会话历史（自动发现） |
 | 飞书文档笔记 | `npx tsx scripts/collect-notes.ts` | `notes-data.json` | 备忘/随手记类文档（需授权） |
@@ -64,6 +64,17 @@
 | Codeium | `~/.codeium/`（随 Windsurf 存储） | — |
 
 Windows 对应路径：Cursor/Windsurf/Trae 在 `%APPDATA%\...`。采集器按周范围过滤会话，统计进「本周完成」。
+
+## 飞书消息结构预过滤（第 1 层，零语义）
+
+`collect-lark.ts` 采集消息后，`scripts/message-filter.ts` 执行**纯结构预过滤**（零语义、零业务词）：
+1. 剥 URL/IP（`https?://`、`IP:port`）
+2. 长度上下界（`messageMinLen`~`messageMaxLen`，默认 8~50，可在 `config.local.json` 覆盖）
+3. 本人消息（需 `FEISHU_OPEN_ID`；未配置则全留，交由 agent 判断）
+4. 去重（前缀哈希）
+5. 上限条数（`messageMaxCandidates`，默认 200）
+
+产出 `messages-candidates.json`：含统计信息（`stats` 字段）与候选列表，供 **AI 分析层（第 2 层，agent 模式）** 使用。代码层**不再包含任何语义词表**（`messageNoiseWords`/`messageStrongVerbs`/`sessionSkipPattern` 已清空），语义拦截与口语归一化完全下沉到 agent。
 
 ## 飞书文档笔记采集
 

@@ -15,6 +15,9 @@
 | 同一业务在周报出现多个 L1（如三四个 `汇元（…）`） | L1 按仓库逐个生成，同目录多仓库不归并 | `config.project.businesses` 把 `repos`/`roots` 映射到同一 `label`，多仓库归并为一个 L1（三级排版） |
 | Windows 上 L1 标题变成磁盘路径（`E:\hy\...`） | 旧 `extractProjectName` 只 `split('/')`，切不开反斜杠；跨盘时 `relative(homedir(), repo)` 直接返回绝对路径 | 统一走 `scripts/project-name.ts` 的 `toPosix` + 盘符/用户名过滤；`git-collector.ts` 存 `repo` 时先 `toPosix` |
 | 不同仓库的同名文档被算到同一项目下（内容串了） | `collectDocItems` 用跨项目全局 `seenFiles` 按文件名去重，后入库的同名文件被整体丢弃并挂在先出现的项目下 | 改为**按项目独立去重**（`Map<项目,Set<文件名>>`），同名文件只在各自仓库内去重 |
+| 会话被归到容器目录名（`hy`/`download`/home）而非真实仓库 | opencode 会话 cwd 是容器根（非 git 仓库），旧 `cleanProjectPath` 取末段直出 | 归属以**实际改动的 git 仓库**为准：`locateRepo` 向上找 `.git`，容器目录下 opencode 会话挖掘 `part` 表实际改动文件多数投票定仓库（`collect-ai-tools.ts`）；定位不到置空走「其他」，绝不直出目录名 |
+| 兜底报告丢工作项（如某条会话/提交消失） | `mergeGroup` 静默截断到 `max` 条 | 超出上限折叠为「等 N 项」，不再静默丢弃（`generate-report.ts`） |
+| Git 条目 message 不准 → 周报不真实 | 规则引擎/agent 只照抄 message | agent 层**以 `files[].path/status` 归纳为准**，message 仅参考；含糊/不符时按改动文件还原真实工作 |
 
 ## 历史踩坑（不要回退）
 
@@ -24,6 +27,12 @@
 - **报告数据量小是正常的**：若本周数据少（如只有 1-2 条），`hasWeekData()` 判定有数据即不回退上周，生成的 report.json 行数少不是 bug。
 - **填单逻辑只有一份**：统一在 `scripts/oa-fill.ts`，`skill-auto.ts` 与 `playwright-fill.ts` 都调用它。不要在两处各自改，避免实现漂移（曾出现过两套 Playwright 填单实现并存）。
 - **项目名解析统一走 `scripts/project-name.ts`**：`generate-report.ts`、`git-collector.ts`、`collect-ai-tools.ts` 都复用 `toPosix`/`deriveProjectName`/`resolveBusiness`，不要各自再 `split('/')` 或 `homedir().split('/')`（Windows 反斜杠下会失效）。业务归并靠 `config.project.businesses` 显式配置，不做自动推断。
+
+## 双层架构：结构预过滤 + AI 分析层（解决"写不完的正则"）
+
+- **第 1 层（代码层，零语义）**：`scripts/message-filter.ts` 做结构预过滤（剥 URL、长度、本人、去重、上限），仅有限结构规则，**不含任何语义词表、不含业务词**，产出 `messages-candidates.json`。
+- **第 2 层（agent 模式，自然语言）**：agent 读取 `messages-candidates.json` + 全量数据，按自然语言指令做语义拦截（丢弃 疑问/预测/跟进/客套/纯链接/私人闲聊）+ 归一化（口语→「动词+对象+结果」），写 `report.json`。
+- **旧版语义词表已删除**：`messageNoiseWords`/`messageStrongVerbs`/`sessionSkipPattern` 等"永远写不完"的正则列表已从默认配置清空；规则引擎兜底不再接入聊天，语义层必须由 agent 完成。
 
 ## 通用化（旧版业务映射已删除）
 

@@ -3,6 +3,10 @@ import { execSync } from 'child_process'
 import { writeFileSync, existsSync } from 'fs'
 import { fileURLToPath } from 'node:url'
 import { getWeekRange, formatTimestamp, isThisWeek } from './time-utils.ts'
+import { config } from 'dotenv'
+import { prefilterMessages } from './message-filter.ts'
+
+config()
 
 console.log('🚀 使用 lark-cli 采集数据...\n')
 
@@ -66,6 +70,11 @@ async function collectData() {
 
   writeFileSync('collected-data.json', JSON.stringify(data, null, 2))
   console.log('✅ 数据采集完成！\n📁 数据已保存到 collected-data.json')
+
+  // 结构预过滤：产出 messages-candidates.json（仅结构规则，零语义）
+  const { candidates, stats } = prefilterMessages(data.messages || [])
+  writeFileSync('messages-candidates.json', JSON.stringify({ weekRange: data.weekRange, collectedAt: data.collectedAt, stats, messages: candidates }, null, 2))
+  console.log(`📨 结构预过滤: 保留 ${stats.kept}/${stats.total} 条候选（其余: 非本人 ${stats.notSelf} / 过短 ${stats.tooShort} / 过长 ${stats.tooLong} / 空 ${stats.empty} / 重复 ${stats.dup} / 上限 ${stats.cap}）`)
 }
 
 async function collectMessagesGlobal(): Promise<any[]> {

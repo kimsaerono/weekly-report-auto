@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from 'child_process'
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, readFileSync, unlinkSync, writeFileSync, statSync } from 'fs'
 import { config } from 'dotenv'
 import { CONFIG } from './config.ts'
 import { fileURLToPath } from 'node:url'
@@ -104,9 +104,13 @@ class SkillAutomation {
       collectWithEnv('collect-notes.ts')
     }
 
-    // 7. 生成周报内容
+  // 7. 生成周报内容
     console.log('🤖 生成周报内容...')
-    try { execSync('npx tsx scripts/generate-report.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  报告生成部分失败，继续...') }
+    if (this.isReportFresh()) {
+      console.log('✅ report.json 已由 AI 分析层（agent）生成且为最新，跳过规则引擎兜底')
+    } else {
+      try { execSync('npx tsx scripts/generate-report.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  报告生成部分失败，继续...') }
+    }
 
     // 8. 飞书消息推送
     const data = this.prepareReportData()
@@ -125,6 +129,17 @@ class SkillAutomation {
     try { execSync('npx tsx scripts/notify-final.ts', { stdio: 'inherit' }) } catch { console.log('⚠️  通知发送失败') }
 
     return { success: true, message: '周报自动化完成', data }
+  }
+
+  // 检查 report.json 是否比所有数据源更新（agent 模式已写入，跳过规则引擎兜底）
+  private static isReportFresh(): boolean {
+    if (!existsSync('report.json')) return false
+    const reportMtime = statSync('report.json').mtimeMs
+    const sources = ['collected-data.json', 'git-commits.json', 'ai-data.json', 'notes-data.json']
+    for (const f of sources) {
+      if (existsSync(f) && statSync(f).mtimeMs > reportMtime) return false
+    }
+    return true
   }
 
   private static checkAppConfig(): boolean {

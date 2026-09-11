@@ -138,7 +138,8 @@ function normalizeKey(text: string): string {
     .replace(/[。，、；：,.;:"'`~!@#$%^&*()\[\]{}\s]+/g, '')
 }
 
-// 归一组内去重 + 包含合并：同组内若一条完整包含另一条（归一化后子串），保留更长一条
+// 归一组内去重 + 包含合并：同组内若一条完整包含另一条（归一化后子串），保留更长一条。
+// 超出上限不静默丢弃：尾部折叠为「等 N 项」，避免真实工作项从兜底报告消失。
 function mergeGroup(items: string[], max = 4): string[] {
   const cleaned = items
     .map(i => i.replace(/[。.;；\s]+$/g, '').trim())
@@ -162,7 +163,12 @@ function mergeGroup(items: string[], max = 4): string[] {
       }
     }
   }
-  return entries.filter(([k]) => !dropped.has(k)).map(([, v]) => v).slice(0, max)
+  const list = entries.filter(([k]) => !dropped.has(k)).map(([, v]) => v)
+  if (list.length <= max) return list
+  // 超出上限：内联折叠到最后一条（「…等 N 项」），避免出现孤立的「等 N 项」列表项
+  const kept = list.slice(0, max - 1)
+  const tail = kept[kept.length - 1]
+  return [...kept.slice(0, -1), `${tail} 等 ${list.length - (max - 1)} 项`]
 }
 
 // git 非文档提交：业务名 -> 仓库 -> 加工后的条目（同业务多仓库归并，保留仓库归属）
@@ -219,11 +225,13 @@ function collectDocItems(gitData: any): string[] {
 function groupSessionsByProject(opencodeData: any): Map<string, Map<string, string[]>> {
   const map = new Map<string, Map<string, string[]>>()
   if (!opencodeData?.sessions) return map
-  const toSkip = new RegExp(CONFIG.generate.sessionSkipPattern, 'i')
+  const skipPattern = CONFIG.generate.sessionSkipPattern
+  const toSkip = skipPattern ? new RegExp(skipPattern, 'i') : null
   for (const s of opencodeData.sessions || []) {
     const title = (s.title || '').trim()
-    if (!title || toSkip.test(title) || isNoise(title)) continue
-    const { label, repo } = resolveBusiness(s.directory || s.project || '')
+    if (!title || (toSkip && toSkip.test(title)) || isNoise(title)) continue
+    const { label, repo: rRepo } = resolveBusiness(s.directory || s.project || '')
+    const repo = label === '其他' ? '' : rRepo
     const item = rewriteSession(title)
     if (!map.has(label)) map.set(label, new Map())
     const repoMap = map.get(label)!
@@ -236,27 +244,7 @@ function groupSessionsByProject(opencodeData: any): Map<string, Map<string, stri
   return map
 }
 
-// ===== 飞书消息：提取本人发出的工作消息（严格过滤，只保留自述工作状态）=====
-
-const MESSAGE_NOISE_RE = new RegExp(`(${CONFIG.generate.messageNoiseWords.join('|')})`)
-// 缺少动词或过短的消息不算
-const MESSAGE_STRONG_VERB_RE = new RegExp(`(${CONFIG.generate.messageStrongVerbs.join('|')})`)
-
-function analyzeUserMessages(messages: any[], openId: string): string[] {
-  const items: string[] = []
-  if (!messages?.length || !openId) return items
-  for (const msg of messages) {
-    const isMine = msg.sender?.id === openId
-    if (!isMine) continue
-    const content = (msg.content || '').trim().replace(/@/g, '')
-    if (content.length < 8 || content.length > 50) continue
-    if (MESSAGE_NOISE_RE.test(content)) continue
-    if (!MESSAGE_STRONG_VERB_RE.test(content)) continue
-    if (/^(好的|收到|ok|嗯|好|赞|👍|OK|了解|明白|谢谢|图|📖)/i.test(content)) continue
-    items.push(content)
-  }
-  return items
-}
+// ===== 飞书消息：已下沉到 agent 分析层（自然语言归一），规则引擎兜底不再自动接入聊天 =====
 
 // ===== 分类与合并（分类结构来自模板，无写死映射）=====
 
@@ -268,12 +256,12 @@ const bucketKey = (label: string, repo: string) => (repo ? `${label}${BUCKET_SEP
 const bucketLabel = (key: string) => (key.includes(BUCKET_SEP) ? key.slice(0, key.indexOf(BUCKET_SEP)) : key)
 
 // 通用归类规则：业务桶（多仓库可三级的 label+repo）→ 第一个分类；
-// 任务/消息 → 第一个分类的「任务」桶；文档/笔记 → 第二个分类的「文档更新」桶
+// 任务/消息 → 第一个分类的「任务」桶（仅飞书任务，聊天由 AI 分析层归一后写入 report.json）；
+// 文档/笔记 → 第二个分类的「文档更新」桶
 function mergeSources(
   gitBuckets: Map<string, Map<string, string[]>>,
   sessionBuckets: Map<string, Map<string, string[]>>,
   tasksCompleted: string[],
-  workMessages: string[],
   docItems: string[],
   template: string,
 ): GroupMap {
@@ -304,7 +292,6 @@ function mergeSources(
     const clean = t.trim().replace(/[。.;；]+$/, '')
     if (clean) taskItems.push(clean)
   }
-  for (const msg of workMessages) taskItems.push(msg)
   if (taskItems.length > 0) ensure(mainCat, '任务').push(...taskItems)
   if (docItems.length > 0) {
     ensure(docsCat, '文档更新').push(...docItems)
@@ -401,10 +388,9 @@ function generateReportRuleBased(data: ReportData, openId: string, template: str
   const gitProjects = groupCommitsByProject(data.git)
   const docItems = collectDocItems(data.git)
   const sessions = groupSessionsByProject(data.opencode)
-  const workMessages = analyzeUserMessages(data.messages || [], openId)
   const noteItems = (data.notes?.workSummary || []).map((n: string) => n.replace(/^\[.*?\]\s*/, '')).filter(Boolean)
 
-  const merged = mergeSources(gitProjects, sessions, tasks.completed, [...workMessages, ...noteItems], docItems, template)
+  const merged = mergeSources(gitProjects, sessions, [...tasks.completed, ...noteItems], docItems, template)
   const completed = buildCompletedLines(merged, template)
 
   const projects: string[] = []

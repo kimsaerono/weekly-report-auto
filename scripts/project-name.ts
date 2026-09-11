@@ -1,7 +1,10 @@
 // 跨平台项目名解析：统一处理 Windows 反斜杠路径、盘符、用户名、语义化业务名（titleRoots）。
 // 语义名由 config.local.json 的 project.titleRoots 显式指定（精确匹配目录段，取最深层命中），
 // 命中时 L1 = 语义名（真实仓库名），未命中回退仓库名直出，保证永不以磁盘路径为题。
+// 归属原则：会话/改动按「实际所属的 git 仓库」归因（locateRepo），定位不到视为非项目 → 其他。
+import { existsSync } from 'fs'
 import { homedir } from 'os'
+import { join } from 'path'
 import { CONFIG } from './config.ts'
 import type { BusinessDef } from './config.ts'
 
@@ -22,6 +25,25 @@ export function repoBaseName(pathOrRepo: string): string {
   const segs = splitSegments(pathOrRepo)
   const meaningful = segs.filter(s => !isDriveSegment(s) && s !== '..' && !DEFAULT_IGNORED.has(s))
   return meaningful[meaningful.length - 1] || '其他'
+}
+
+// 向上找第一个含 .git 的祖先目录 = 该路径所属的真实仓库；找不到返回 null。
+// 用于把「在任意目录（容器根/下载目录/home）里产生的改动」归因到实际项目仓库。
+export function locateRepo(abs: string): string | null {
+  const raw = toPosix(abs || '')
+  if (!raw) return null
+  const segs = raw.split('/').filter(Boolean)
+  if (segs.length === 0) return null
+  const drive = isDriveSegment(segs[0]) ? segs[0] : null
+  const start = drive ? 1 : 0
+  for (let i = segs.length; i > start; i--) {
+    const body = segs.slice(start, i).join('/')
+    const cand = drive ? `${drive}/${body}` : `/${body}`
+    try {
+      if (existsSync(join(cand, '.git'))) return cand
+    } catch { /* 权限或路径无效，继续向上 */ }
+  }
+  return null
 }
 
 // 业务归属解析：仓库名命中 repos 最优先，其次目录段命中 roots（跨业务取最深层、同层按配置序），

@@ -2,11 +2,11 @@
 import { execSync } from 'child_process'
 import { writeFileSync, existsSync, readdirSync, readFileSync, statSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { getWeekRange } from './time-utils.ts'
 import { CONFIG, resolvePaths } from './config.ts'
+import { locateRepo, repoBaseName } from './project-name.ts'
 
 interface AiSession {
   tool: string
@@ -17,6 +17,7 @@ interface AiSession {
   time_created: string
   time_updated: string
   model?: string
+  origin?: string
 }
 
 interface AiToolResult {
@@ -35,8 +36,6 @@ interface AiToolsResult {
   workSummary: string[]
 }
 
-const home = homedir()
-
 function detectPath(paths: string[]): string | null {
   for (const p of paths) {
     if (existsSync(p)) return p
@@ -44,20 +43,74 @@ function detectPath(paths: string[]): string | null {
   return null
 }
 
-function cleanProjectPath(dir: string): string {
-  const parts = (dir || '').split(/[\/\\]/).filter(Boolean)
-  const username = (home.split(/[\/\\]/).pop() || '').toLowerCase()
-  const skip = new Set([...CONFIG.project.skipDirs, username])
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (!skip.has(parts[i])) return parts[i]
-  }
-  return ''
-}
-
 function tsToString(ms: number | string | undefined): string {
   const n = Number(ms)
   if (!n || Number.isNaN(n)) return ''
   return new Date(n).toISOString().slice(0, 16).replace('T', ' ')
+}
+
+// 归因会话到真实仓库：directory 提升为所属仓库路径，project 取仓库名；定位不到视为非项目（其他）。
+function attachRepo(s: AiSession): AiSession {
+  const loc = locateRepo(s.directory)
+  if (loc) return { ...s, directory: loc, project: repoBaseName(loc) }
+  return { ...s, origin: s.directory, directory: '', project: '' }
+}
+
+// opencode：挖掘 part 表里实际改动的文件，反推所属仓库（多数投票）。仅当会话目录不是 git 仓库时才需要。
+type RepoVotes = Map<string, string | null> // session_id -> 所属仓库全路径（或 null）
+function locateRepoFromParts(dbPath: string, sessionIds: string[]): RepoVotes {
+  const result: RepoVotes = new Map()
+  for (const id of sessionIds) result.set(id, null)
+  if (sessionIds.length === 0) return result
+
+  let db: DatabaseSync
+  try {
+    db = new DatabaseSync(`file:${dbPath}?mode=ro`, { readOnly: true })
+  } catch (e: any) {
+    console.log(`   ⚠️ opencode part 表不可读: ${e.message}`)
+    return result
+  }
+
+  try {
+    const ids = sessionIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',')
+    const rows = db.prepare(`SELECT session_id, data FROM part WHERE session_id IN (${ids})`).all() as { session_id: string; data: any }[]
+    const votes = new Map<string, Map<string, number>>()
+    for (const id of sessionIds) votes.set(id, new Map())
+
+    for (const row of rows) {
+      let d: any = {}
+      try { d = typeof row.data === 'string' ? JSON.parse(row.data) : row.data } catch { continue }
+      const fps: string[] = []
+      const fp = d?.state?.input?.filePath
+      if (typeof fp === 'string') fps.push(fp)
+      else if (Array.isArray(fp)) fps.push(...fp.filter((x: any) => typeof x === 'string'))
+      const fd = d?.state?.metadata?.filediff?.file
+      if (typeof fd === 'string') fps.push(fd)
+
+      const map = votes.get(row.session_id)
+      if (!map) continue
+      for (const f of fps) {
+        if (!f) continue
+        const repo = locateRepo(f)
+        if (!repo) continue
+        map.set(repo, (map.get(repo) || 0) + 1)
+      }
+    }
+
+    for (const [id, map] of votes) {
+      let best: string | null = null
+      let bestN = 0
+      for (const [repo, n] of map) {
+        if (n > bestN) { best = repo; bestN = n }
+      }
+      result.set(id, best)
+    }
+  } catch (e: any) {
+    console.log(`   ⚠️ opencode part 表解析失败: ${e.message}`)
+  } finally {
+    try { db.close() } catch { /* ignore */ }
+  }
+  return result
 }
 
 // ---------- opencode adapter ----------
@@ -81,11 +134,22 @@ ORDER BY time_created DESC`
     const [id, , title, directory, project_id, time_created, time_updated] = line.split('\t')
     sessions.push({
       tool: 'opencode', id: id || '', title: title || id || '',
-      directory: directory || project_id || '', project: cleanProjectPath(directory || project_id || ''),
+      directory: directory || project_id || '', project: '',
       time_created: tsToString(time_created), time_updated: tsToString(time_updated),
     })
   }
-  return sessions
+
+  // 归属真实仓库：目录已是 git 仓库 → 直接用；否则挖掘 part 表实际改动文件反推（多数投票）
+  const base = sessions.map(attachRepo)
+  const needsMining = base.filter(s => !s.directory)
+  if (needsMining.length > 0) {
+    const mined = locateRepoFromParts(dbPath, needsMining.map(s => s.id))
+    for (const s of needsMining) {
+      const winner = mined.get(s.id)
+      if (winner) { s.directory = winner; s.project = repoBaseName(winner) }
+    }
+  }
+  return base
 }
 
 // ---------- Claude Code adapter (JSONL) ----------
@@ -126,11 +190,11 @@ function collectClaudeCode(baseDir: string, startMs: number, endMs: number): AiS
         const created = timeCreatedStr ? new Date(timeCreatedStr).getTime() : st.mtimeMs
         if (created >= startMs && created < endMs) {
           const dir = cwd || proj.name
-          sessions.push({
+          sessions.push(attachRepo({
             tool: 'claude-code', id: file.split('/').pop()?.replace('.jsonl', '') || '', title: title || proj.name,
-            directory: dir, project: cleanProjectPath(dir), model,
+            directory: dir, project: '', model,
             time_created: tsToString(created), time_updated: tsToString(st.mtimeMs),
-          })
+          }))
         }
       } catch (e: any) {
         console.log(`   ⚠️ claude-code 读取失败 ${file}: ${e.message}`)
@@ -172,12 +236,12 @@ function collectVSCodeFamily(toolName: string, storageRoot: string, startMs: num
 
       const title = val?.title || val?.name || id
       const dir = val?.cwd || val?.workspace || ''
-      sessions.push({
+      sessions.push(attachRepo({
         tool: toolName, id, title: String(title).slice(0, 100), directory: String(dir),
-        project: cleanProjectPath(String(dir)),
+        project: '',
         time_created: tsToString(created), time_updated: tsToString(Number(updatedRaw) || created),
         model: val?.model || undefined,
-      })
+      }))
     }
   } catch (e: any) {
     console.log(`   ⚠️ ${toolName} 解析失败: ${e.message}`)

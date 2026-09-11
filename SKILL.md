@@ -68,11 +68,19 @@ npx tsx scripts/collect-ai-tools.ts    # AI 工具会话（自动发现已安装
 npx tsx scripts/collect-notes.ts       # 飞书文档笔记（需 search:docs:read 授权）
 ```
 
-### 2. AI 分析（核心步骤）
+### 2. AI 分析（核心步骤，agent 模式）
 
-AI 读取采集到的数据文件，分析生成周报内容，写入 `report.json`。分析规则与 report.json 结构详见 [references/report-rules.md](references/report-rules.md)。
+**agent 模式（推荐做语义层）**：
+1. 采集数据后，`collect-lark.ts` 自动产出 `messages-candidates.json`（结构预过滤：剥 URL、长度、本人、去重、上限，**零语义规则**）
+2. **agent 读取** `collected-data.json` / `messages-candidates.json` / `git-commits.json` / `ai-data.json` / `notes-data.json`
+   - **语义拦截**（自然语言判断，非词表）：丢弃 疑问/预测/跟进/客套/纯链接/私人闲聊
+   - **归一化**：口语 → 「动词 + 对象 + 结果」工作条目（如「mini的一键部署脚本我加了prod分支直通车」→「为 mini 一键部署脚本新增 prod 分支直通车」）
+   - **Git 提交以 `files[].path/status` 为准归纳**，提交 message 仅作参考（message 含糊/不符时按改动文件还原真实工作，不照抄 message）
+   - 同义合并、限条数、按业务归并三级排版（结构由 oa-fill 落实）
+   - 写 `report.json`（结构化 `{title,level,text}`，无序号）
+3. 填入 OA 草稿：`npx tsx scripts/playwright-fill.ts`
 
-**核心要点：** 每个维度至少 1-3 条；内容精简有整合；**report.json 不带序号**（OA 自动编号，序号前缀由 fill 脚本处理）；优先使用任务数据；忽略闲聊；**归类数据驱动**——业务名/仓库名直出一级标签（`businesses` 归并，多仓库三级），git type（feat/fix…）映射动词前缀，分类取自模板，默认配置无业务写死。
+**自动化兜底（`skill-auto.ts` 全自动）**：规则引擎只聚合 git + sessions + tasks，**不含聊天消息**（语义层必须由 agent 完成）。若 `report.json` 已由 agent 写入且为最新，`skill-auto.ts` 会跳过规则引擎兜底。
 
 ### 3. 填入草稿
 
